@@ -1,7 +1,5 @@
 streamlit==1.32.0
-onnxruntime==1.17.1
+onnxruntime==1.20.0
 numpy==1.26.4
 pillow==10.2.0
 gdown==5.1.0
-opencv-python-headless==4.9.0.80
-ultralytics==8.1.34
