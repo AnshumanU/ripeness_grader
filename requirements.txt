@@ -1,0 +1,6 @@
+streamlit
+onnxruntime
+numpy
+pillow
+ultralytics
+gdown
