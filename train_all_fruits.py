@@ -218,17 +218,18 @@ def train_fruit(fruit, train_entries, test_entries):
     onnx_path = OUTPUT_DIR / f"{fruit}_model.onnx"
 
     torch.onnx.export(
-        model,
-        dummy,
-        str(onnx_path),
-        input_names=["input"],
-        output_names=["output"],
-        dynamic_axes={
-            "input": {0: "batch"},
-            "output": {0: "batch"}
-        },
-        opset_version=17,
-    )
+    model,
+    dummy,
+    str(onnx_path),
+    input_names=["input"],
+    output_names=["output"],
+    dynamic_axes={
+        "input": {0: "batch"},
+        "output": {0: "batch"}
+    },
+    opset_version=18,
+    external_data=False
+)
 
     print(f"Saved → {onnx_path} (best val acc: {best_acc:.3f})")
 
