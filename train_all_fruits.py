@@ -227,7 +227,8 @@ def train_fruit(fruit, train_entries, test_entries):
         "input": {0: "batch"},
         "output": {0: "batch"}
     },
-    opset_version=18,
+    opset_version=17,
+    dynamo=False,
     external_data=False
 )
 
