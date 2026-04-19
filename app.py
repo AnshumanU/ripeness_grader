@@ -75,7 +75,7 @@ def download_models():
         if not os.path.exists(dest):
             try:
                 url = f"https://drive.google.com/uc?id={file_id}&export=download&confirm=t"
-                gdown.download(url, dest, quiet=False, fuzzy=True)
+                gdown.download(url, dest, quiet=False)
             except Exception as e:
                 st.error(f"Download error for {fruit}: {e}")
 
