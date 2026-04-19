@@ -227,9 +227,7 @@ def train_fruit(fruit, train_entries, test_entries):
         "input": {0: "batch"},
         "output": {0: "batch"}
     },
-    opset_version=17,
-    dynamo=False,
-    external_data=False
+    opset_version=12,
 )
 
     print(f"Saved → {onnx_path} (best val acc: {best_acc:.3f})")
