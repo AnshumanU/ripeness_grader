@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide"
 )
 
-MODEL_DIR = "models"
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 IMG_SIZE = 224
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
