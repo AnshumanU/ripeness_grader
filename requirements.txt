@@ -1,7 +1,7 @@
-streamlit==1.32.0
-onnxruntime==1.20.0
-numpy==1.26.4
-pillow==10.2.0
-gdown==5.1.0
-torch==2.6.0
-torchvision==0.21.0
+streamlit
+onnxruntime
+numpy
+pillow
+gdown
+torch
+torchvision
