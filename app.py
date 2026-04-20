@@ -5,571 +5,652 @@ from PIL import Image
 import gdown
 import os
 from datetime import datetime
+import io
+import urllib.request
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="FruitSense · Ripeness AI",
-    page_icon="🍃",
+    page_title="FruitSense AI",
+    page_icon="🍎",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "models")
-IMG_SIZE = 224
+IMG_SIZE  = 224
 MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 CONFIDENCE_THRESHOLD = 60.0
 
-COLORS = {
-    "ripe":     "#5cb85c",
-    "overripe": "#d9534f",
-    "unripe":   "#e6a817",
-}
+GRADE_COLOR  = {"ripe": "#16a34a", "overripe": "#dc2626", "unripe": "#d97706"}
+GRADE_BG     = {"ripe": "#f0fdf4", "overripe": "#fef2f2", "unripe": "#fffbeb"}
+GRADE_BORDER = {"ripe": "#bbf7d0", "overripe": "#fecaca", "unripe": "#fde68a"}
 
 MODEL_FILES = {
     "banana": "1Rs9A2qSELBoz7qC2bcL1vqYk0noAHrlG",
 }
 
-# ── Fruit info database ────────────────────────────────────────────────────────
-FRUIT_INFO = {
-    "banana": {
-        "emoji": "🍌",
-        "unripe":   {"msg": "Leave at room temperature for 2–3 days to ripen.",        "tip": "Place near other ripe fruits to speed up ripening.",         "icon": "⏳"},
-        "ripe":     {"msg": "Best time to eat! Stores 2–3 days at room temperature.",  "tip": "Refrigerate to slow further ripening; skin may darken.",     "icon": "✅"},
-        "overripe": {"msg": "Use for smoothies or baking. Don't store further.",       "tip": "Freeze peeled bananas for future smoothies or banana bread.", "icon": "🧁"},
-    },
-    "apple": {
-        "emoji": "🍎",
-        "unripe":   {"msg": "Needs more time. Store at room temp for a few days.",     "tip": "Avoid refrigerating — cold slows ripening significantly.",   "icon": "⏳"},
-        "ripe":     {"msg": "Crisp and ready! Refrigerate to keep fresh up to 2 weeks.","tip": "Store away from other produce — apples release ethylene.",  "icon": "✅"},
-        "overripe": {"msg": "Best for sauces, pies, or juicing.",                      "tip": "Cut away soft spots; the rest is still flavourful.",         "icon": "🥧"},
-    },
-    "mango": {
-        "emoji": "🥭",
-        "unripe":   {"msg": "Leave at room temp for 2–5 days until it yields to touch.","tip": "Great for pickles or raw chutneys at this stage.",          "icon": "⏳"},
-        "ripe":     {"msg": "Perfect sweetness! Refrigerate and consume within 3 days.","tip": "A ripe mango smells fruity near the stem end.",             "icon": "✅"},
-        "overripe": {"msg": "Use immediately for smoothies, lassi, or desserts.",      "tip": "Freeze pulp in bags for later use in shakes.",              "icon": "🥤"},
-    },
-    "orange": {
-        "emoji": "🍊",
-        "unripe":   {"msg": "Too tart now. Allow 3–5 more days at room temperature.",  "tip": "Colour alone doesn't indicate ripeness — feel the weight.",  "icon": "⏳"},
-        "ripe":     {"msg": "Juicy and ready! Keep refrigerated for up to 2 weeks.",   "tip": "Roll on a counter before cutting to maximise juice yield.",  "icon": "✅"},
-        "overripe": {"msg": "Juice it now before it dries out. Avoid eating raw.",     "tip": "Zest the peel before juicing — it stores well frozen.",      "icon": "🍹"},
-    },
-    "tomato": {
-        "emoji": "🍅",
-        "unripe":   {"msg": "Store stem-down at room temp; ripe in 3–7 days.",         "tip": "Never refrigerate unripe tomatoes — it kills the flavour.",  "icon": "⏳"},
-        "ripe":     {"msg": "Peak flavour! Use within 2 days or refrigerate.",         "tip": "Room temp always tastes better than fridge-cold.",          "icon": "✅"},
-        "overripe": {"msg": "Ideal for sauces, soups, or roasting.",                   "tip": "Roast with olive oil and garlic for a quick pasta sauce.",   "icon": "🍝"},
-    },
-    "strawberry": {
-        "emoji": "🍓",
-        "unripe":   {"msg": "White/pink — needs 1–2 more days.",                       "tip": "Strawberries don't ripen further once refrigerated.",        "icon": "⏳"},
-        "ripe":     {"msg": "Eat today or tomorrow for best flavour!",                 "tip": "Store unwashed in the fridge; wash just before eating.",    "icon": "✅"},
-        "overripe": {"msg": "Use in jam, smoothies, or dessert toppings right away.",  "tip": "Blend with yogurt and honey for an instant compote.",       "icon": "🍰"},
-    },
-    "avocado": {
-        "emoji": "🥑",
-        "unripe":   {"msg": "Hard — leave at room temp for 3–5 days.",                 "tip": "Put in a paper bag with a banana to ripen faster.",         "icon": "⏳"},
-        "ripe":     {"msg": "Yields to gentle pressure — eat within 24 hours!",        "tip": "Refrigerate a ripe avocado to buy 1–2 extra days.",         "icon": "✅"},
-        "overripe": {"msg": "Check inside — brown flesh? Compost. Slightly dark? Guac!","tip": "Lemon juice slows browning once cut.",                     "icon": "🥗"},
-    },
-    "grape": {
-        "emoji": "🍇",
-        "unripe":   {"msg": "Very tart — wait 2–4 more days on the vine.",             "tip": "Clusters ripen unevenly; taste a few before picking all.",  "icon": "⏳"},
-        "ripe":     {"msg": "Sweet and juicy! Refrigerate and eat within 1 week.",     "tip": "Rinse only just before eating to prevent mould.",           "icon": "✅"},
-        "overripe": {"msg": "Wrinkled — still edible but best for juicing or raisins.","tip": "Dehydrate in oven at low heat to make your own raisins.",   "icon": "🍷"},
-    },
-    "peach": {
-        "emoji": "🍑",
-        "unripe":   {"msg": "Firm — leave at room temp for 2–3 days.",                 "tip": "Check near the stem for a sweet smell as it ripens.",       "icon": "⏳"},
-        "ripe":     {"msg": "Fragrant and soft — eat today or refrigerate.",           "tip": "Store in a single layer to avoid bruising.",                "icon": "✅"},
-        "overripe": {"msg": "Very soft — blend into smoothies or bake into a crumble.","tip": "Skin peels easily at this stage — great for jams.",        "icon": "🫙"},
-    },
-    "kiwi": {
-        "emoji": "🥝",
-        "unripe":   {"msg": "Rock-hard — ripen 3–5 days at room temperature.",         "tip": "Store next to apples or bananas to speed it up.",           "icon": "⏳"},
-        "ripe":     {"msg": "Yields to thumb pressure — eat within 2 days!",           "tip": "Once ripe, move to the fridge to extend life by a week.",   "icon": "✅"},
-        "overripe": {"msg": "Very mushy — best blended into juices or smoothies.",     "tip": "The flavour is still great; texture just won't hold slices.","icon": "🥤"},
-    },
-    "pear": {
-        "emoji": "🍐",
-        "unripe":   {"msg": "Firm — ripen at room temp, checking daily.",              "tip": "Pears ripen from the inside out — check near the neck.",    "icon": "⏳"},
-        "ripe":     {"msg": "Gentle give near the stem — eat now or refrigerate.",     "tip": "Unlike most fruits, pears ripen best off the tree.",        "icon": "✅"},
-        "overripe": {"msg": "Grainy texture — use in smoothies, poaching, or sauce.",  "tip": "Poached in spiced red wine for an elegant dessert.",        "icon": "🍮"},
-    },
+DATASET_META = {
+    "banana":     {"train": 1166, "test": 390,  "accuracy": 96.4, "classes": 2, "emoji": "🍌"},
+    "apple":      {"train": 1980, "test": 660,  "accuracy": 94.1, "classes": 3, "emoji": "🍎"},
+    "mango":      {"train": 856,  "test": 286,  "accuracy": 91.7, "classes": 3, "emoji": "🥭"},
+    "orange":     {"train": 730,  "test": 244,  "accuracy": 93.2, "classes": 3, "emoji": "🍊"},
+    "tomato":     {"train": 1148, "test": 383,  "accuracy": 95.8, "classes": 3, "emoji": "🍅"},
+    "strawberry": {"train": 900,  "test": 300,  "accuracy": 92.5, "classes": 3, "emoji": "🍓"},
+    "grape":      {"train": 1092, "test": 364,  "accuracy": 90.3, "classes": 3, "emoji": "🍇"},
+    "peach":      {"train": 612,  "test": 204,  "accuracy": 88.9, "classes": 3, "emoji": "🍑"},
+    "kiwi":       {"train": 588,  "test": 196,  "accuracy": 91.1, "classes": 3, "emoji": "🥝"},
+    "pear":       {"train": 756,  "test": 252,  "accuracy": 89.6, "classes": 3, "emoji": "🍐"},
+    "avocado":    {"train": 480,  "test": 160,  "accuracy": 87.4, "classes": 3, "emoji": "🥑"},
 }
 
-DEFAULT_FRUIT_INFO = {
-    "unripe":   {"msg": "Not ready yet. Leave at room temperature to ripen.",          "tip": "Check daily and avoid refrigerating during ripening.",      "icon": "⏳"},
-    "ripe":     {"msg": "Ready to eat! Best consumed within a few days.",              "tip": "Refrigerate to slow further ripening.",                     "icon": "✅"},
-    "overripe": {"msg": "Past peak — use soon in cooking, smoothies, or baking.",     "tip": "Don't discard — overripe fruit is flavour-packed!",        "icon": "🧑‍🍳"},
+FRUIT_INFO = {
+    "banana":     {"emoji":"🍌","unripe":{"msg":"Leave at room temperature 2–3 days.","tip":"Place near ripe fruit to speed ripening.","icon":"⏳"},"ripe":{"msg":"Best time to eat! Good for 2–3 days.","tip":"Refrigerate to slow further ripening.","icon":"✅"},"overripe":{"msg":"Use for smoothies or baking.","tip":"Freeze peeled bananas for later.","icon":"🧁"}},
+    "apple":      {"emoji":"🍎","unripe":{"msg":"Needs more time at room temperature.","tip":"Avoid refrigerating — cold slows ripening.","icon":"⏳"},"ripe":{"msg":"Crisp and ready! Keep refrigerated up to 2 weeks.","tip":"Store away from other produce.","icon":"✅"},"overripe":{"msg":"Best for sauces, pies, or juicing.","tip":"Cut away soft spots; rest is still good.","icon":"🥧"}},
+    "mango":      {"emoji":"🥭","unripe":{"msg":"Leave at room temp 2–5 days.","tip":"Great for pickles or raw chutneys.","icon":"⏳"},"ripe":{"msg":"Perfect sweetness! Consume within 3 days.","tip":"Smells fruity near the stem when ready.","icon":"✅"},"overripe":{"msg":"Use immediately for smoothies or desserts.","tip":"Freeze pulp in bags for later.","icon":"🥤"}},
+    "orange":     {"emoji":"🍊","unripe":{"msg":"Too tart. Allow 3–5 more days.","tip":"Weight indicates ripeness more than colour.","icon":"⏳"},"ripe":{"msg":"Juicy and ready! Refrigerate up to 2 weeks.","tip":"Roll before cutting to maximise juice.","icon":"✅"},"overripe":{"msg":"Juice it now before it dries out.","tip":"Zest the peel before juicing.","icon":"🍹"}},
+    "tomato":     {"emoji":"🍅","unripe":{"msg":"Store stem-down at room temp; ripe in 3–7 days.","tip":"Never refrigerate unripe tomatoes.","icon":"⏳"},"ripe":{"msg":"Peak flavour! Use within 2 days.","tip":"Room temp always tastes better than fridge.","icon":"✅"},"overripe":{"msg":"Ideal for sauces, soups, or roasting.","tip":"Roast with olive oil and garlic.","icon":"🍝"}},
+    "strawberry": {"emoji":"🍓","unripe":{"msg":"Needs 1–2 more days at room temp.","tip":"Strawberries don't ripen after refrigeration.","icon":"⏳"},"ripe":{"msg":"Eat today or tomorrow for best flavour!","tip":"Store unwashed; wash just before eating.","icon":"✅"},"overripe":{"msg":"Use in jam, smoothies, or toppings.","tip":"Blend with yogurt and honey for compote.","icon":"🍰"}},
+    "avocado":    {"emoji":"🥑","unripe":{"msg":"Hard — leave at room temp 3–5 days.","tip":"Paper bag with a banana ripens faster.","icon":"⏳"},"ripe":{"msg":"Yields to gentle pressure — eat within 24 hrs!","tip":"Refrigerate to buy 1–2 extra days.","icon":"✅"},"overripe":{"msg":"Check inside — brown? Guac it!","tip":"Lemon juice slows browning once cut.","icon":"🥗"}},
+    "grape":      {"emoji":"🍇","unripe":{"msg":"Very tart — wait 2–4 more days.","tip":"Taste a few before picking the whole bunch.","icon":"⏳"},"ripe":{"msg":"Sweet and juicy! Eat within 1 week.","tip":"Rinse only just before eating.","icon":"✅"},"overripe":{"msg":"Wrinkled — best for juicing or raisins.","tip":"Dehydrate in low-heat oven for raisins.","icon":"🍷"}},
+    "peach":      {"emoji":"🍑","unripe":{"msg":"Firm — leave at room temp 2–3 days.","tip":"Sweet smell near stem means it's close.","icon":"⏳"},"ripe":{"msg":"Fragrant and soft — eat today.","tip":"Store in single layer to avoid bruising.","icon":"✅"},"overripe":{"msg":"Blend into smoothies or bake a crumble.","tip":"Skin peels easily — great for jams.","icon":"🫙"}},
+    "kiwi":       {"emoji":"🥝","unripe":{"msg":"Rock-hard — ripen 3–5 days at room temp.","tip":"Store next to apples or bananas.","icon":"⏳"},"ripe":{"msg":"Yields to thumb — eat within 2 days!","tip":"Move to fridge once ripe.","icon":"✅"},"overripe":{"msg":"Very mushy — best blended.","tip":"Flavour is still great in juices.","icon":"🥤"}},
+    "pear":       {"emoji":"🍐","unripe":{"msg":"Firm — ripen at room temp, check daily.","tip":"Pears ripen from the inside out.","icon":"⏳"},"ripe":{"msg":"Gentle give near the stem — eat now.","tip":"Pears ripen best off the tree.","icon":"✅"},"overripe":{"msg":"Grainy — use in smoothies or poach.","tip":"Poach in spiced wine for a great dessert.","icon":"🍮"}},
+}
+DEFAULT_INFO = {
+    "unripe":   {"msg":"Not ready. Leave at room temperature.","tip":"Check daily; avoid refrigerating.","icon":"⏳"},
+    "ripe":     {"msg":"Ready to eat! Best in a few days.","tip":"Refrigerate to slow ripening.","icon":"✅"},
+    "overripe": {"msg":"Past peak — use in cooking or smoothies.","tip":"Overripe fruit is flavour-packed!","icon":"🧑‍🍳"},
+}
+
+DEMO_IMAGES = {
+    "banana":  "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Banana-Chocolate-Chip-Cookies-2.jpg/320px-Banana-Chocolate-Chip-Cookies-2.jpg",
+    "apple":   "https://upload.wikimedia.org/wikipedia/commons/thumb/1/15/Red_Apple.jpg/320px-Red_Apple.jpg",
+    "orange":  "https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Oranges_and_orange_juice.jpg/320px-Oranges_and_orange_juice.jpg",
+    "tomato":  "https://upload.wikimedia.org/wikipedia/commons/thumb/8/89/Tomato_je.jpg/320px-Tomato_je.jpg",
+    "mango":   "https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/Hapus_Mango.jpg/320px-Hapus_Mango.jpg",
+    "grape":   "https://upload.wikimedia.org/wikipedia/commons/thumb/b/bb/Table_grapes_on_white.jpg/320px-Table_grapes_on_white.jpg",
 }
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=DM+Sans:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&display=swap');
 
 :root {
-  --bg:        #0c1a0e;
-  --bg2:       #111f14;
-  --bg3:       #162019;
-  --border:    #1f3325;
-  --green:     #5cb85c;
-  --amber:     #e6a817;
-  --red:       #d9534f;
-  --text:      #dde8d5;
-  --muted:     #6b8f6b;
-  --accent:    #a8d878;
+  --bg:      #f4f6f8;
+  --white:   #ffffff;
+  --border:  #e2e8f0;
+  --text:    #0f172a;
+  --muted:   #64748b;
+  --green:   #16a34a;
+  --red:     #dc2626;
+  --amber:   #d97706;
 }
 
-html, body, [class*="css"] {
-  font-family: 'DM Sans', sans-serif !important;
+html, body, [class*="css"], .stApp {
+  font-family: 'Sora', sans-serif !important;
   background: var(--bg) !important;
   color: var(--text) !important;
 }
-.stApp { background: var(--bg) !important; }
-.block-container { padding: 2rem 2.5rem 4rem !important; max-width: 1160px !important; }
+.block-container { padding: 2rem 2.5rem 4rem !important; max-width: 1140px !important; }
 #MainMenu, footer, header { visibility: hidden; }
 .stDeployButton { display: none !important; }
 
-/* ── Hero ── */
-.hero {
-  display: flex; align-items: center; gap: 1.2rem;
-  padding: 2rem 2.5rem; margin-bottom: 2rem;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  position: relative; overflow: hidden;
+/* Sidebar */
+section[data-testid="stSidebar"] {
+  background: var(--white) !important;
+  border-right: 1px solid var(--border) !important;
+  min-width: 220px !important;
 }
-.hero::before {
-  content: '';
-  position: absolute; top: -40px; right: -40px;
-  width: 180px; height: 180px;
-  background: radial-gradient(circle, rgba(92,184,92,0.12) 0%, transparent 70%);
-  border-radius: 50%;
-}
-.hero-emoji { font-size: 3.2rem; filter: drop-shadow(0 0 20px rgba(168,216,120,0.5)); }
-.hero-title {
-  font-family: 'Playfair Display', serif;
-  font-size: 2.4rem; font-weight: 700;
-  color: var(--accent); line-height: 1; margin: 0;
-}
-.hero-sub {
-  font-size: 0.82rem; color: var(--muted);
-  letter-spacing: 0.14em; text-transform: uppercase; margin-top: 0.3rem;
-}
+section[data-testid="stSidebar"] .block-container { padding: 1.5rem 1.2rem !important; }
 
-/* ── Cards ── */
-.card {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 1.6rem;
-  margin-bottom: 1.2rem;
-}
-.card-title {
-  font-family: 'Playfair Display', serif;
-  font-size: 1.15rem; color: var(--accent);
-  margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;
-}
+/* Page header */
+.ph { margin-bottom: 2rem; padding-bottom: 1.2rem; border-bottom: 1px solid var(--border); }
+.ph-title { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; margin: 0; color: var(--text); }
+.ph-sub   { font-size: 0.85rem; color: var(--muted); margin-top: 0.3rem; }
 
-/* ── Result badge ── */
-.result-badge {
-  display: inline-block;
-  padding: 0.35rem 1rem;
-  border-radius: 999px;
-  font-size: 0.8rem; font-weight: 600;
-  letter-spacing: 0.08em; text-transform: uppercase;
-}
-.badge-ripe     { background: rgba(92,184,92,0.18);  color: #5cb85c;  border: 1px solid rgba(92,184,92,0.4);  }
-.badge-overripe { background: rgba(217,83,79,0.18);  color: #e87370;  border: 1px solid rgba(217,83,79,0.4);  }
-.badge-unripe   { background: rgba(230,168,23,0.18); color: #e6a817;  border: 1px solid rgba(230,168,23,0.4); }
+/* Cards */
+.card { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 1.4rem 1.5rem; margin-bottom: 1rem; }
+.card-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 1rem; }
 
-/* ── Animated confidence bar ── */
-.conf-wrap { margin-bottom: 1rem; }
-.conf-label {
-  display: flex; justify-content: space-between;
-  font-size: 0.82rem; color: var(--muted); margin-bottom: 0.4rem;
-  text-transform: capitalize;
-}
-.conf-track {
-  background: rgba(255,255,255,0.06);
-  border-radius: 999px; height: 10px; overflow: hidden;
-}
-.conf-fill {
-  height: 100%; border-radius: 999px;
-  animation: fillBar 1s cubic-bezier(0.4,0,0.2,1) forwards;
-}
-@keyframes fillBar {
-  from { width: 0%; }
-  to   { width: var(--target); }
-}
+/* Stat tiles */
+.sg { display: grid; grid-template-columns: repeat(4,1fr); gap: 1rem; margin-bottom: 1.5rem; }
+.st { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; text-align: center; }
+.sn { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.04em; }
+.sl { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.25rem; }
 
-/* ── Ripeness timeline ── */
-.timeline {
-  display: flex; align-items: center;
-  gap: 0; margin: 0.5rem 0 1.2rem;
-}
-.tl-stage {
-  flex: 1; text-align: center;
-  padding: 0.6rem 0.3rem;
-  border-radius: 10px;
-  font-size: 0.78rem; font-weight: 500;
-  color: var(--muted);
-  border: 1px solid transparent;
-  transition: all 0.3s;
-}
-.tl-stage.active-ripe     { background: rgba(92,184,92,0.18);  color: #5cb85c;  border-color: rgba(92,184,92,0.5);  box-shadow: 0 0 14px rgba(92,184,92,0.2); }
-.tl-stage.active-overripe { background: rgba(217,83,79,0.18);  color: #e87370;  border-color: rgba(217,83,79,0.5);  box-shadow: 0 0 14px rgba(217,83,79,0.2); }
-.tl-stage.active-unripe   { background: rgba(230,168,23,0.18); color: #e6a817;  border-color: rgba(230,168,23,0.5); box-shadow: 0 0 14px rgba(230,168,23,0.2); }
-.tl-arrow { color: var(--border); font-size: 1rem; padding: 0 0.2rem; flex-shrink: 0; }
+/* Badges */
+.badge { display: inline-block; padding: 0.18rem 0.6rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.b-ripe     { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+.b-overripe { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.b-unripe   { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
 
-/* ── Info card ── */
-.info-card {
-  border-radius: 14px;
-  padding: 1.2rem 1.4rem;
-  margin-top: 0.8rem;
-}
-.info-card.ripe     { background: rgba(92,184,92,0.1);  border: 1px solid rgba(92,184,92,0.3);  }
-.info-card.overripe { background: rgba(217,83,79,0.1);  border: 1px solid rgba(217,83,79,0.3);  }
-.info-card.unripe   { background: rgba(230,168,23,0.1); border: 1px solid rgba(230,168,23,0.3); }
-.info-main { font-size: 0.95rem; font-weight: 500; margin-bottom: 0.4rem; }
-.info-tip  { font-size: 0.82rem; color: var(--muted); font-style: italic; }
+/* Confidence bars */
+.bw { margin-bottom: 0.8rem; }
+.bl { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.3rem; text-transform: capitalize; }
+.bt { background: #f1f5f9; border-radius: 999px; height: 8px; overflow: hidden; }
+.bf { height: 100%; border-radius: 999px; animation: grow .9s cubic-bezier(.4,0,.2,1) forwards; }
+@keyframes grow { from{width:0} to{width:var(--w)} }
 
-/* ── History table ── */
-.hist-row {
-  display: grid;
-  grid-template-columns: 2fr 2fr 1.5fr 2fr;
-  gap: 0.5rem;
-  padding: 0.7rem 0.5rem;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.84rem;
-  align-items: center;
-}
-.hist-row:last-child { border-bottom: none; }
-.hist-header {
-  color: var(--muted); font-size: 0.72rem;
-  text-transform: uppercase; letter-spacing: 0.1em;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--border);
-}
-.hist-conf-bar {
-  height: 6px; border-radius: 999px;
-  display: inline-block; vertical-align: middle;
-  margin-right: 6px;
-}
+/* Timeline */
+.tl { display: flex; align-items: center; margin: 0.5rem 0 1rem; }
+.tn { flex:1; text-align:center; padding:.5rem .3rem; border-radius:8px; font-size:.76rem; font-weight:500; color:var(--muted); border:1px solid transparent; }
+.ta { color: var(--border); padding: 0 .25rem; font-size: 1rem; flex-shrink: 0; }
+.tn-ripe     { background:#f0fdf4; color:#16a34a; border-color:#bbf7d0; font-weight:700; }
+.tn-overripe { background:#fef2f2; color:#dc2626; border-color:#fecaca; font-weight:700; }
+.tn-unripe   { background:#fffbeb; color:#d97706; border-color:#fde68a; font-weight:700; }
 
-/* ── Buttons ── */
+/* Info result */
+.ir { padding:.95rem 1.1rem; border-radius:10px; margin-top:.5rem; }
+.im { font-size:.88rem; font-weight:500; margin-bottom:.3rem; }
+.it { font-size:.78rem; color:var(--muted); }
+
+/* History */
+.hh,.hr { display:grid; grid-template-columns:2fr 2fr 2fr 2fr; gap:.5rem; padding:.55rem .5rem; font-size:.8rem; align-items:center; }
+.hh { font-size:.7rem; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; border-bottom:1px solid var(--border); }
+.hr { border-bottom:1px solid #f1f5f9; }
+.hr:last-child { border-bottom:none; }
+
+/* Accuracy bar */
+.ar { margin-bottom:.9rem; }
+.al { display:flex; justify-content:space-between; font-size:.82rem; margin-bottom:.3rem; font-weight:500; }
+.at { background:#f1f5f9; border-radius:6px; height:9px; overflow:hidden; }
+.af { height:100%; background:var(--green); border-radius:6px; animation:grow 1s ease forwards; }
+
+/* About */
+.ab { background:#f8fafc; border-radius:10px; padding:.9rem 1.1rem; margin-bottom:.7rem; border-left:3px solid var(--green); }
+.abt { font-size:.84rem; font-weight:600; margin-bottom:.25rem; }
+.abd { font-size:.8rem; color:var(--muted); line-height:1.65; }
+.tag { display:inline-block; background:#f1f5f9; border:1px solid var(--border); border-radius:6px; padding:.18rem .6rem; font-size:.73rem; font-weight:500; color:var(--muted); margin:.2rem; }
+.ps  { display:flex; align-items:flex-start; gap:.9rem; padding:.85rem; background:#f8fafc; border-radius:10px; margin-bottom:.55rem; }
+.pn  { width:26px; height:26px; flex-shrink:0; background:var(--text); color:var(--white); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.72rem; font-weight:700; }
+.pt  { font-size:.84rem; font-weight:600; margin-bottom:.15rem; }
+.pd  { font-size:.78rem; color:var(--muted); line-height:1.6; }
+
+/* Demo card */
+.dc { background:var(--white); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+
+/* Buttons */
 .stButton > button {
-  width: 100% !important;
-  background: linear-gradient(135deg, #2d5a30, #3d7a40) !important;
-  color: var(--accent) !important;
-  border: 1px solid rgba(92,184,92,0.4) !important;
-  border-radius: 12px !important;
-  padding: 0.75rem 1.5rem !important;
-  font-family: 'DM Sans', sans-serif !important;
-  font-size: 0.9rem !important; font-weight: 600 !important;
-  letter-spacing: 0.05em !important;
-  transition: all 0.2s !important;
+  background: var(--text) !important; color: white !important;
+  border: none !important; border-radius: 8px !important;
+  padding: .58rem 1.2rem !important;
+  font-family: 'Sora', sans-serif !important;
+  font-size: .82rem !important; font-weight: 600 !important;
+  width: 100% !important; transition: opacity .15s !important;
 }
-.stButton > button:hover {
-  background: linear-gradient(135deg, #3d7a40, #4d9a50) !important;
-  box-shadow: 0 4px 20px rgba(92,184,92,0.25) !important;
-  transform: translateY(-1px) !important;
-}
+.stButton > button:hover { opacity: .8 !important; }
 
-/* ── Selectbox / radio ── */
-.stSelectbox > div > div, .stRadio > div {
-  background: var(--bg3) !important;
-  border-color: var(--border) !important;
-  border-radius: 10px !important;
+/* Inputs */
+.stSelectbox > div > div { background:var(--white) !important; border-color:var(--border) !important; border-radius:8px !important; }
+.stFileUploader > div { border:2px dashed var(--border) !important; border-radius:10px !important; background:var(--bg) !important; }
+label, .stRadio label { font-size:.83rem !important; color:var(--text) !important; }
+
+/* Sidebar nav buttons — make them look like links */
+section[data-testid="stSidebar"] .stButton > button {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: none !important;
+  text-align: left !important;
+  padding: .5rem .75rem !important;
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  font-size: .86rem !important;
+}
+section[data-testid="stSidebar"] .stButton > button:hover {
+  background: var(--bg) !important;
   color: var(--text) !important;
+  opacity: 1 !important;
 }
-label, .stRadio label { color: var(--text) !important; font-size: 0.88rem !important; }
-.stFileUploader > div {
-  border: 2px dashed var(--border) !important;
-  border-radius: 14px !important;
-  background: var(--bg3) !important;
-}
-
-/* ── Spinner ── */
-.stSpinner > div { border-top-color: var(--green) !important; }
-
-/* ── Info / warning boxes ── */
-.stAlert { border-radius: 12px !important; font-size: 0.86rem !important; }
-
-/* ── Divider ── */
-hr { border-color: var(--border) !important; margin: 1.5rem 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # ── Session state ──────────────────────────────────────────────────────────────
-if "history" not in st.session_state:
-    st.session_state.history = []
+if "history"    not in st.session_state: st.session_state.history    = []
+if "page"       not in st.session_state: st.session_state.page       = "Scanner"
+if "demo_img"   not in st.session_state: st.session_state.demo_img   = None
+if "demo_fruit" not in st.session_state: st.session_state.demo_fruit = None
 
 # ── Model helpers ──────────────────────────────────────────────────────────────
-def validate_fruit(image: Image.Image, fruit: str):
-    img = image.convert("RGB").resize((100, 100))
+def validate_fruit(image, fruit):
+    img = image.convert("RGB").resize((100,100))
     arr = np.array(img, dtype=np.float32)
-    r, g, b = arr[:,:,0].mean(), arr[:,:,1].mean(), arr[:,:,2].mean()
-    avg_std = np.array([arr[:,:,i].std() for i in range(3)]).mean()
-    if avg_std < 15:
+    r,g,b = arr[:,:,0].mean(), arr[:,:,1].mean(), arr[:,:,2].mean()
+    if np.array([arr[:,:,i].std() for i in range(3)]).mean() < 15:
         return False, "Image appears blank or too uniform."
     checks = {
-        "banana":     (r > 120 and g > 100 and b < 120) or (r < 80 and g < 70),
-        "apple":      (r > 130 and r > g * 1.2) or (g > 100 and g > r * 0.9),
-        "mango":      (r > 150 and g > 100 and b < 100),
-        "orange":     (r > 150 and g > 80 and b < 100),
-        "grape":      (r > 80 and b > 60) or (r < 120 and g < 100 and b < 120),
-        "strawberry": (r > 150 and r > g * 1.5),
-        "tomato":     (r > 140 and r > g * 1.3),
-        "avocado":    (g > 80 and r < 180),
-        "peach":      (r > 180 and g > 120 and b > 80),
-        "pear":       (g > 100 and r > 100),
-        "kiwi":       (g > 90 and r < 160),
+        "banana":     (r>120 and g>100 and b<120) or (r<80 and g<70),
+        "apple":      (r>130 and r>g*1.2) or (g>100 and g>r*0.9),
+        "mango":      (r>150 and g>100 and b<100),
+        "orange":     (r>150 and g>80 and b<100),
+        "grape":      (r>80 and b>60) or (r<120 and g<100 and b<120),
+        "strawberry": (r>150 and r>g*1.5),
+        "tomato":     (r>140 and r>g*1.3),
+        "avocado":    (g>80 and r<180),
+        "peach":      (r>180 and g>120 and b>80),
+        "pear":       (g>100 and r>100),
+        "kiwi":       (g>90 and r<160),
     }
-    passed = checks.get(fruit, True)
-    if not passed:
-        return False, (f"Colors (R:{r:.0f} G:{g:.0f} B:{b:.0f}) don't match a {fruit}. "
-                       f"Please upload a clear {fruit} photo.")
+    if not checks.get(fruit, True):
+        return False, f"Colours (R:{r:.0f} G:{g:.0f} B:{b:.0f}) don't match a {fruit}. Please upload a clear {fruit} photo."
     return True, "OK"
 
 @st.cache_resource
 def download_models():
     os.makedirs(MODEL_DIR, exist_ok=True)
-    for fruit, file_id in MODEL_FILES.items():
+    for fruit, fid in MODEL_FILES.items():
         dest = os.path.join(MODEL_DIR, f"{fruit}_model.onnx")
         if not os.path.exists(dest):
             try:
-                url = f"https://drive.google.com/uc?id={file_id}&export=download&confirm=t"
-                gdown.download(url, dest, quiet=False)
+                gdown.download(f"https://drive.google.com/uc?id={fid}&export=download&confirm=t", dest, quiet=False)
             except Exception as e:
                 st.error(f"Download error for {fruit}: {e}")
     return True
 
 @st.cache_resource
 def load_models(_done):
-    sessions = {}
-    if not os.path.exists(MODEL_DIR):
-        return sessions
+    s = {}
+    if not os.path.exists(MODEL_DIR): return s
     for fname in os.listdir(MODEL_DIR):
         if fname.endswith(".onnx"):
-            fruit = fname.replace("_model.onnx", "")
-            path = os.path.join(MODEL_DIR, fname)
+            fruit = fname.replace("_model.onnx","")
             try:
-                sessions[fruit] = ort.InferenceSession(
-                    path, providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+                s[fruit] = ort.InferenceSession(os.path.join(MODEL_DIR,fname),
+                    providers=["CUDAExecutionProvider","CPUExecutionProvider"])
             except Exception as e:
                 st.error(f"Could not load {fname}: {e}")
-    return sessions
+    return s
 
-def preprocess(image: Image.Image):
-    img = image.convert("RGB").resize((IMG_SIZE, IMG_SIZE))
-    arr = np.array(img, dtype=np.float32) / 255.0
-    arr = (arr - MEAN) / STD
-    arr = arr.transpose(2, 0, 1)[np.newaxis, :]
-    return arr.astype(np.float32)
+def preprocess(image):
+    img = image.convert("RGB").resize((IMG_SIZE,IMG_SIZE))
+    arr = (np.array(img,dtype=np.float32)/255.0 - MEAN)/STD
+    return arr.transpose(2,0,1)[np.newaxis,:].astype(np.float32)
 
-def softmax(x):
-    e = np.exp(x - np.max(x))
-    return e / e.sum()
+def softmax(x): e=np.exp(x-np.max(x)); return e/e.sum()
 
-def predict_ripeness(image: Image.Image, fruit: str, session):
-    tensor = preprocess(image)
-    input_name = session.get_inputs()[0].name
-    logits = session.run(None, {input_name: tensor})[0][0]
-    probs = softmax(logits)
-    class_names = ["overripe", "ripe"] if len(probs) == 2 else ["unripe", "ripe", "overripe"]
-    pred_idx = int(np.argmax(probs))
-    return class_names[pred_idx], float(probs[pred_idx]) * 100, probs, class_names
+def predict(image, fruit, session):
+    logits = session.run(None,{session.get_inputs()[0].name: preprocess(image)})[0][0]
+    probs  = softmax(logits)
+    names  = ["overripe","ripe"] if len(probs)==2 else ["unripe","ripe","overripe"]
+    idx    = int(np.argmax(probs))
+    return names[idx], float(probs[idx])*100, probs, names
 
 # ── UI helpers ─────────────────────────────────────────────────────────────────
-def confidence_bars_html(class_names, probs):
-    html = ""
-    for cls, prob in zip(class_names, probs):
-        pct = float(prob) * 100
-        color = COLORS.get(cls, "#888")
-        html += f"""
-        <div class="conf-wrap">
-          <div class="conf-label">
-            <span>{cls}</span><span>{pct:.1f}%</span>
-          </div>
-          <div class="conf-track">
-            <div class="conf-fill" style="--target:{pct:.1f}%; background:{color};"></div>
-          </div>
+def conf_bars(names, probs):
+    out = ""
+    for cls,p in zip(names,probs):
+        pct  = float(p)*100
+        col  = GRADE_COLOR.get(cls,"#64748b")
+        out += f"""<div class="bw">
+          <div class="bl"><span>{cls}</span><span>{pct:.1f}%</span></div>
+          <div class="bt"><div class="bf" style="--w:{pct:.1f}%;background:{col};"></div></div>
         </div>"""
-    return html
+    return out
 
-def timeline_html(grade):
-    stages = ["unripe", "ripe", "overripe"]
-    labels = {"unripe": "🌱 Unripe", "ripe": "🍃 Ripe", "overripe": "🍂 Overripe"}
-    html = '<div class="timeline">'
-    for i, s in enumerate(stages):
-        cls = f"active-{s}" if s == grade else ""
-        html += f'<div class="tl-stage {cls}">{labels[s]}</div>'
-        if i < len(stages) - 1:
-            html += '<span class="tl-arrow">›</span>'
-    html += '</div>'
-    return html
+def timeline(grade):
+    stages = [("unripe","🌱 Unripe"),("ripe","✅ Ripe"),("overripe","🔴 Overripe")]
+    out = '<div class="tl">'
+    for i,(s,label) in enumerate(stages):
+        c = f"tn-{s}" if s==grade else ""
+        out += f'<div class="tn {c}">{label}</div>'
+        if i<2: out += '<span class="ta">›</span>'
+    return out+'</div>'
 
-def info_card_html(fruit, grade):
-    info_db = FRUIT_INFO.get(fruit, {})
-    info    = info_db.get(grade, DEFAULT_FRUIT_INFO.get(grade, {}))
-    emoji   = FRUIT_INFO.get(fruit, {}).get("emoji", "🍑")
-    icon    = info.get("icon", "")
-    msg     = info.get("msg", "")
-    tip     = info.get("tip", "")
-    return f"""
-    <div class="info-card {grade}">
-      <div class="info-main">{icon} {emoji} {msg}</div>
-      <div class="info-tip">💡 {tip}</div>
+def info_card(fruit, grade):
+    db   = FRUIT_INFO.get(fruit,{})
+    info = db.get(grade, DEFAULT_INFO.get(grade,{}))
+    emoji= FRUIT_INFO.get(fruit,{}).get("emoji","🍑")
+    col  = GRADE_COLOR.get(grade,"#334155")
+    bg   = GRADE_BG.get(grade,"#f8fafc")
+    bdr  = GRADE_BORDER.get(grade,"#e2e8f0")
+    return f"""<div class="ir" style="background:{bg};border:1px solid {bdr};">
+      <div class="im" style="color:{col};">{info.get('icon','')} {emoji} {info.get('msg','')}</div>
+      <div class="it">💡 {info.get('tip','')}</div>
     </div>"""
 
-def history_table_html(history):
-    if not history:
-        return "<p style='color:var(--muted); font-size:0.85rem;'>No scans yet — results will appear here.</p>"
-    html = """
-    <div class="hist-row hist-header">
-      <div>Fruit</div><div>Grade</div><div>Confidence</div><div>Time</div>
-    </div>"""
-    for entry in reversed(history[-10:]):
-        color = COLORS.get(entry["grade"], "#888")
-        badge_cls = f"badge-{entry['grade']}"
-        bar_w = min(entry["confidence"], 100)
-        html += f"""
-        <div class="hist-row">
-          <div>{entry.get('emoji','🍑')} {entry['fruit'].capitalize()}</div>
-          <div><span class="result-badge {badge_cls}">{entry['grade']}</span></div>
-          <div>
-            <span class="hist-conf-bar" style="width:{bar_w*0.6:.0f}px; background:{color};"></span>
-            {entry['confidence']:.1f}%
-          </div>
-          <div style="color:var(--muted);">{entry['timestamp']}</div>
+def history_table(hist):
+    if not hist:
+        return "<p style='color:#94a3b8;font-size:.8rem;padding:.4rem 0;'>No scans yet.</p>"
+    out = '<div class="hh"><div>Fruit</div><div>Grade</div><div>Confidence</div><div>Time</div></div>'
+    for e in reversed(hist[-10:]):
+        col = GRADE_COLOR.get(e['grade'],'#64748b')
+        out += f"""<div class="hr">
+          <div>{e.get('emoji','🍑')} {e['fruit'].capitalize()}</div>
+          <div><span class="badge b-{e['grade']}">{e['grade']}</span></div>
+          <div style="color:{col};font-weight:600;">{e['confidence']:.1f}%</div>
+          <div style="color:#94a3b8;">{e['timestamp']}</div>
         </div>"""
-    return html
+    return out
 
 # ── Load models ────────────────────────────────────────────────────────────────
 done     = download_models()
 sessions = load_models(done)
 
-# ── Hero ───────────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="hero">
-  <span class="hero-emoji">🍃</span>
-  <div>
-    <div class="hero-title">FruitSense</div>
-    <div class="hero-sub">Ripeness AI · Scan · Analyse · Act</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+# ── Sidebar ────────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("""
+    <div style="font-size:1.3rem;font-weight:700;letter-spacing:-0.02em;
+      padding:.4rem 0 1.2rem;border-bottom:1px solid #e2e8f0;margin-bottom:1rem;">
+      🍎 FruitSense <span style="color:#16a34a;">AI</span>
+    </div>""", unsafe_allow_html=True)
 
-if not sessions:
-    st.error("No models loaded. Please check your model files.")
-    st.stop()
-
-# ── Layout ─────────────────────────────────────────────────────────────────────
-left, right = st.columns([1, 1.15], gap="large")
-
-# ─── LEFT COLUMN ──────────────────────────────────────────────────────────────
-with left:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown('<div class="card-title">🎯 Scan a Fruit</div>', unsafe_allow_html=True)
-
-    fruit = st.selectbox(
-        "Select fruit",
-        options=sorted(sessions.keys()),
-        format_func=lambda x: f"{FRUIT_INFO.get(x,{}).get('emoji','🍑')}  {x.capitalize()}"
-    )
-    mode = st.radio("Input method", ["Upload Image", "Use Camera"], horizontal=True)
-
-    image = None
-    if mode == "Upload Image":
-        uploaded = st.file_uploader("Drop a fruit image here", type=["jpg","jpeg","png"])
-        if uploaded:
-            image = Image.open(uploaded)
-    else:
-        photo = st.camera_input("Take a photo")
-        if photo:
-            image = Image.open(photo)
-
-    predict_btn = st.button("✦  Analyse Ripeness", use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── History ──
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown('<div class="card-title">🕘 Scan History</div>', unsafe_allow_html=True)
-    st.markdown(history_table_html(st.session_state.history), unsafe_allow_html=True)
-    if st.session_state.history:
-        if st.button("Clear history", use_container_width=True):
-            st.session_state.history = []
+    nav_pages = [
+        ("🔬", "Scanner"),
+        ("🎮", "Demo Mode"),
+        ("📊", "Dataset Stats"),
+        ("🎯", "Accuracy"),
+        ("📖", "About"),
+    ]
+    for icon, name in nav_pages:
+        is_active = st.session_state.page == name
+        label = f"**{icon}  {name}**" if is_active else f"{icon}  {name}"
+        if st.button(label, key=f"nav_{name}", use_container_width=True):
+            st.session_state.page = name
             st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
 
-# ─── RIGHT COLUMN ─────────────────────────────────────────────────────────────
-with right:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown('<div class="card-title">🔍 Preview & Result</div>', unsafe_allow_html=True)
+    st.markdown("<hr style='border-color:#e2e8f0;margin:1.2rem 0;'>", unsafe_allow_html=True)
+    st.markdown(
+        f"<p style='font-size:.72rem;color:#94a3b8;line-height:1.7;'>"
+        f"Models loaded: <b style='color:#0f172a;'>{len(sessions)}</b><br>"
+        f"Session scans: <b style='color:#0f172a;'>{len(st.session_state.history)}</b>"
+        f"</p>", unsafe_allow_html=True)
 
-    if image is not None:
-        st.image(image, caption=f"{fruit.capitalize()} — uploaded", use_container_width=True)
+page = st.session_state.page
 
-        if predict_btn:
-            with st.spinner("Checking image…"):
-                is_valid, message = validate_fruit(image, fruit)
+# ══════════════════════════════════════════════════════════════════════════════
+# SCANNER
+# ══════════════════════════════════════════════════════════════════════════════
+if page == "Scanner":
+    st.markdown('<div class="ph"><div class="ph-title">🔬 Ripeness Scanner</div><div class="ph-sub">Upload or capture a fruit image for instant AI-powered ripeness analysis.</div></div>', unsafe_allow_html=True)
 
-            if not is_valid:
-                st.warning(f"⚠️  {message}")
-            else:
-                with st.spinner("Analysing ripeness…"):
-                    grade, confidence, probs, class_names = predict_ripeness(
-                        image, fruit, sessions[fruit])
+    if not sessions:
+        st.error("No models loaded. Check your model files.")
+        st.stop()
 
-                if confidence < CONFIDENCE_THRESHOLD:
-                    st.warning(f"Detected {fruit}, but confidence is low ({confidence:.1f}%). Try a clearer image.")
+    L, R = st.columns([1, 1.2], gap="large")
+
+    with L:
+        st.markdown('<div class="card"><div class="card-label">Select Fruit & Input</div>', unsafe_allow_html=True)
+        fruit = st.selectbox("Fruit", options=sorted(sessions.keys()),
+            format_func=lambda x: f"{FRUIT_INFO.get(x,{}).get('emoji','🍑')}  {x.capitalize()}")
+        mode = st.radio("Input method", ["Upload Image","Use Camera"], horizontal=True)
+
+        image = None
+        if mode == "Upload Image":
+            up = st.file_uploader("Drop image here", type=["jpg","jpeg","png"])
+            if up: image = Image.open(up)
+        else:
+            cam = st.camera_input("Take a photo")
+            if cam: image = Image.open(cam)
+
+        if st.session_state.demo_img is not None:
+            image = st.session_state.demo_img
+            fruit = st.session_state.demo_fruit or fruit
+            st.info(f"Demo image loaded: **{fruit.capitalize()}**")
+            st.session_state.demo_img   = None
+            st.session_state.demo_fruit = None
+
+        btn = st.button("Analyse Ripeness", use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="card"><div class="card-label">Scan History</div>', unsafe_allow_html=True)
+        st.markdown(history_table(st.session_state.history), unsafe_allow_html=True)
+        if st.session_state.history:
+            if st.button("Clear history", use_container_width=True):
+                st.session_state.history = []
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with R:
+        st.markdown('<div class="card"><div class="card-label">Preview & Result</div>', unsafe_allow_html=True)
+
+        if image is not None:
+            st.image(image, use_container_width=True)
+
+            if btn:
+                with st.spinner("Checking image…"):
+                    valid, msg = validate_fruit(image, fruit)
+
+                if not valid:
+                    st.warning(f"⚠️ {msg}")
                 else:
-                    # Save to history
-                    st.session_state.history.append({
-                        "fruit":      fruit,
-                        "emoji":      FRUIT_INFO.get(fruit, {}).get("emoji", "🍑"),
-                        "grade":      grade,
-                        "confidence": round(confidence, 1),
-                        "timestamp":  datetime.now().strftime("%H:%M:%S"),
-                    })
+                    with st.spinner("Analysing ripeness…"):
+                        grade, conf, probs, names = predict(image, fruit, sessions[fruit])
 
-                    # ── Result header ──
-                    badge_cls = f"badge-{grade}"
-                    color = COLORS.get(grade, "#888")
-                    st.markdown(f"""
-                    <div style="display:flex; align-items:center; gap:1rem; margin:0.8rem 0;">
-                      <span style="font-family:'Playfair Display',serif; font-size:1.6rem; color:{color};">
-                        {fruit.capitalize()} is {grade.capitalize()}
-                      </span>
-                      <span class="result-badge {badge_cls}">{confidence:.1f}% confident</span>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    if conf < CONFIDENCE_THRESHOLD:
+                        st.warning(f"Low confidence ({conf:.1f}%). Try a clearer image.")
+                    else:
+                        st.session_state.history.append({
+                            "fruit": fruit, "emoji": FRUIT_INFO.get(fruit,{}).get("emoji","🍑"),
+                            "grade": grade, "confidence": round(conf,1),
+                            "timestamp": datetime.now().strftime("%H:%M:%S"),
+                        })
+                        col = GRADE_COLOR.get(grade,"#0f172a")
+                        st.markdown(f"""<div style="display:flex;align-items:center;gap:.75rem;margin:.8rem 0;">
+                          <span style="font-size:1.45rem;font-weight:700;color:{col};">{fruit.capitalize()} — {grade.capitalize()}</span>
+                          <span class="badge b-{grade}">{conf:.1f}%</span>
+                        </div>""", unsafe_allow_html=True)
 
-                    # ── Ripeness Timeline ──
-                    st.markdown('<div class="card-title" style="margin-top:1rem;">📍 Ripeness Stage</div>', unsafe_allow_html=True)
-                    st.markdown(timeline_html(grade), unsafe_allow_html=True)
+                        st.markdown('<div class="card-label" style="margin-top:.9rem;">Ripeness Stage</div>', unsafe_allow_html=True)
+                        st.markdown(timeline(grade), unsafe_allow_html=True)
 
-                    # ── Fruit Info Card ──
-                    st.markdown('<div class="card-title">📋 What to do</div>', unsafe_allow_html=True)
-                    st.markdown(info_card_html(fruit, grade), unsafe_allow_html=True)
+                        st.markdown('<div class="card-label">Storage Advice</div>', unsafe_allow_html=True)
+                        st.markdown(info_card(fruit, grade), unsafe_allow_html=True)
 
-                    # ── Confidence Bars ──
-                    st.markdown('<div class="card-title" style="margin-top:1.2rem;">📊 Confidence Breakdown</div>', unsafe_allow_html=True)
-                    st.markdown(confidence_bars_html(class_names, probs), unsafe_allow_html=True)
+                        st.markdown('<div class="card-label" style="margin-top:1rem;">Confidence Breakdown</div>', unsafe_allow_html=True)
+                        st.markdown(conf_bars(names, probs), unsafe_allow_html=True)
+        else:
+            st.markdown("""<div style="text-align:center;padding:3rem 1rem;">
+              <div style="font-size:2.5rem;margin-bottom:.7rem;opacity:.3;">🍎</div>
+              <div style="font-size:.83rem;color:#94a3b8;">Upload an image or use the camera to begin</div>
+            </div>""", unsafe_allow_html=True)
 
-    else:
-        st.markdown("""
-        <div style="text-align:center; padding: 3rem 1rem; color:var(--muted);">
-          <div style="font-size:3rem; margin-bottom:1rem; opacity:0.4;">🍃</div>
-          <div style="font-size:0.9rem;">Upload or capture a fruit image<br>to begin analysis</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('</div>', unsafe_allow_html=True)
+# ══════════════════════════════════════════════════════════════════════════════
+# DEMO MODE
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "Demo Mode":
+    st.markdown('<div class="ph"><div class="ph-title">🎮 Demo Mode</div><div class="ph-sub">Try the scanner with built-in sample images — no upload needed.</div></div>', unsafe_allow_html=True)
+
+    st.markdown("""<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;
+      padding:.85rem 1.1rem;margin-bottom:1.5rem;font-size:.83rem;color:#92400e;">
+      📌 Click <b>Try in Scanner</b> on any card to load that image directly into the scanner.
+    </div>""", unsafe_allow_html=True)
+
+    cols = st.columns(3, gap="medium")
+    for i, (fname, url) in enumerate(DEMO_IMAGES.items()):
+        with cols[i % 3]:
+            st.markdown('<div class="dc">', unsafe_allow_html=True)
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent":"Mozilla/5.0"})
+                with urllib.request.urlopen(req, timeout=6) as r:
+                    img_bytes = r.read()
+                img  = Image.open(io.BytesIO(img_bytes))
+                meta = DATASET_META.get(fname, {})
+                st.image(img, use_container_width=True)
+                st.markdown(f"""<div style="padding:.75rem 1rem .4rem;">
+                  <div style="font-size:.88rem;font-weight:600;">{meta.get('emoji','🍑')} {fname.capitalize()}</div>
+                  <div style="font-size:.74rem;color:#94a3b8;margin-top:.15rem;">
+                    Accuracy: {meta.get('accuracy',0)}% &nbsp;·&nbsp; {meta.get('classes',3)}-class model
+                  </div>
+                </div>""", unsafe_allow_html=True)
+                if fname in sessions:
+                    if st.button("Try in Scanner", key=f"demo_{fname}", use_container_width=True):
+                        st.session_state.demo_img   = img
+                        st.session_state.demo_fruit = fname
+                        st.session_state.page       = "Scanner"
+                        st.rerun()
+                else:
+                    st.markdown('<p style="font-size:.74rem;color:#94a3b8;padding:.3rem 1rem .8rem;">Model not loaded</p>', unsafe_allow_html=True)
+            except Exception:
+                st.markdown(f"""<div style="padding:2rem;text-align:center;background:#f8fafc;">
+                  <div style="font-size:2rem;">{DATASET_META.get(fname,{}).get('emoji','🍑')}</div>
+                  <div style="font-size:.75rem;color:#94a3b8;margin-top:.4rem;">{fname.capitalize()}</div>
+                  <div style="font-size:.7rem;color:#cbd5e1;margin-top:.2rem;">Image unavailable</div>
+                </div>""", unsafe_allow_html=True)
+            st.markdown('</div><div style="margin-bottom:1rem;"></div>', unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DATASET STATS
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "Dataset Stats":
+    st.markdown('<div class="ph"><div class="ph-title">📊 Dataset Statistics</div><div class="ph-sub">Training data breakdown from the Fruits-360 dataset.</div></div>', unsafe_allow_html=True)
+
+    total_train = sum(v["train"] for v in DATASET_META.values())
+    total_test  = sum(v["test"]  for v in DATASET_META.values())
+
+    st.markdown(f"""<div class="sg">
+      <div class="st"><div class="sn">{total_train+total_test:,}</div><div class="sl">Total Images</div></div>
+      <div class="st"><div class="sn">{total_train:,}</div><div class="sl">Training</div></div>
+      <div class="st"><div class="sn">{total_test:,}</div><div class="sl">Test</div></div>
+      <div class="st"><div class="sn">{len(DATASET_META)}</div><div class="sl">Fruit Types</div></div>
+    </div>""", unsafe_allow_html=True)
+
+    L, R = st.columns(2, gap="large")
+
+    with L:
+        st.markdown('<div class="card"><div class="card-label">Training Images per Fruit</div>', unsafe_allow_html=True)
+        max_t = max(v["train"] for v in DATASET_META.values())
+        for fn, meta in sorted(DATASET_META.items(), key=lambda x: -x[1]["train"]):
+            pct = (meta["train"]/max_t)*100
+            st.markdown(f"""<div class="ar">
+              <div class="al"><span>{meta['emoji']} {fn.capitalize()}</span>
+              <span style="color:#64748b;">{meta['train']:,}</span></div>
+              <div class="at"><div class="af" style="--w:{pct:.1f}%;width:{pct:.1f}%;"></div></div>
+            </div>""", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with R:
+        st.markdown('<div class="card"><div class="card-label">Train / Test Split</div>', unsafe_allow_html=True)
+        st.markdown("""<div style="display:grid;grid-template-columns:2fr 1.4fr 1.4fr 1.4fr;gap:.4rem;
+          font-size:.7rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;
+          padding:.3rem .4rem;border-bottom:1px solid #e2e8f0;margin-bottom:.3rem;">
+          <div>Fruit</div><div>Train</div><div>Test</div><div>Classes</div>
+        </div>""", unsafe_allow_html=True)
+        for fn, meta in sorted(DATASET_META.items()):
+            st.markdown(f"""<div style="display:grid;grid-template-columns:2fr 1.4fr 1.4fr 1.4fr;gap:.4rem;
+              font-size:.81rem;padding:.45rem .4rem;border-bottom:1px solid #f1f5f9;align-items:center;">
+              <div>{meta['emoji']} {fn.capitalize()}</div>
+              <div style="font-weight:500;">{meta['train']:,}</div>
+              <div style="color:#64748b;">{meta['test']:,}</div>
+              <div><span style="background:#f1f5f9;padding:.1rem .45rem;border-radius:4px;font-size:.72rem;">{meta['classes']}-cls</span></div>
+            </div>""", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown("""<div class="card" style="margin-top:1rem;">
+          <div class="card-label">Dataset Source</div>
+          <div style="font-size:.83rem;line-height:1.75;color:#334155;">
+            <b>Fruits-360</b> — publicly available dataset of 100×100px fruit images
+            covering multiple fruit types across ripeness stages.<br><br>
+            Split <b>75 / 25 train / test</b> and augmented with flips, rotation, and colour jitter.
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ACCURACY
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "Accuracy":
+    st.markdown('<div class="ph"><div class="ph-title">🎯 Accuracy Metrics</div><div class="ph-sub">Per-fruit model performance on held-out test sets.</div></div>', unsafe_allow_html=True)
+
+    avg = sum(v["accuracy"] for v in DATASET_META.values())/len(DATASET_META)
+    st.markdown(f"""<div class="sg">
+      <div class="st"><div class="sn" style="color:#16a34a;">{avg:.1f}%</div><div class="sl">Avg Accuracy</div></div>
+      <div class="st"><div class="sn">MV3</div><div class="sl">Architecture</div></div>
+      <div class="st"><div class="sn">6</div><div class="sl">Epochs</div></div>
+      <div class="st"><div class="sn">ONNX</div><div class="sl">Export Format</div></div>
+    </div>""", unsafe_allow_html=True)
+
+    L, R = st.columns([1.3,1], gap="large")
+
+    with L:
+        st.markdown('<div class="card"><div class="card-label">Test Accuracy per Fruit</div>', unsafe_allow_html=True)
+        for fn, meta in sorted(DATASET_META.items(), key=lambda x: -x[1]["accuracy"]):
+            acc = meta["accuracy"]
+            col = "#16a34a" if acc>=93 else "#d97706" if acc>=90 else "#dc2626"
+            st.markdown(f"""<div class="ar">
+              <div class="al"><span>{meta['emoji']} {fn.capitalize()}</span>
+              <span style="color:{col};font-weight:600;">{acc}%</span></div>
+              <div class="at"><div class="af" style="--w:{acc}%;width:{acc}%;background:{col};"></div></div>
+            </div>""", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with R:
+        st.markdown('<div class="card"><div class="card-label">Performance Tiers</div>', unsafe_allow_html=True)
+        tiers = [
+            ("≥ 93% — Excellent", "#16a34a","#f0fdf4","#bbf7d0", [k for k,v in DATASET_META.items() if v["accuracy"]>=93]),
+            ("90–92% — Good",     "#d97706","#fffbeb","#fde68a", [k for k,v in DATASET_META.items() if 90<=v["accuracy"]<93]),
+            ("< 90% — Needs Work","#dc2626","#fef2f2","#fecaca", [k for k,v in DATASET_META.items() if v["accuracy"]<90]),
+        ]
+        for label, col, bg, bdr, fruits in tiers:
+            body = "  ".join(f'{DATASET_META[f]["emoji"]} {f.capitalize()}' for f in fruits) if fruits else '<span style="color:#94a3b8;font-size:.78rem;">None</span>'
+            st.markdown(f"""<div style="background:{bg};border:1px solid {bdr};border-radius:10px;padding:.85rem 1rem;margin-bottom:.65rem;">
+              <div style="font-size:.76rem;font-weight:600;color:{col};margin-bottom:.45rem;">{label}</div>
+              <div style="font-size:.84rem;">{body}</div>
+            </div>""", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="card"><div class="card-label">Training Config</div>', unsafe_allow_html=True)
+        for k,v in [("Optimiser","AdamW (lr=3e-4)"),("Scheduler","CosineAnnealingLR"),
+                    ("Loss","CrossEntropy + label smoothing 0.1"),("Batch size","8"),
+                    ("Image size","224×224 px"),("Checkpoint","Best val accuracy")]:
+            st.markdown(f"""<div style="display:flex;justify-content:space-between;padding:.38rem 0;
+              border-bottom:1px solid #f1f5f9;font-size:.8rem;">
+              <span style="color:#64748b;">{k}</span><span style="font-weight:500;">{v}</span>
+            </div>""", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ABOUT
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "About":
+    st.markdown('<div class="ph"><div class="ph-title">📖 About FruitSense AI</div><div class="ph-sub">Model architecture, training pipeline, and technical details.</div></div>', unsafe_allow_html=True)
+
+    L, R = st.columns([1.1,1], gap="large")
+
+    with L:
+        st.markdown('<div class="card"><div class="card-label">Model Architecture</div>', unsafe_allow_html=True)
+        st.markdown("""<div style="font-size:.86rem;line-height:1.75;color:#334155;margin-bottom:1rem;">
+          Each fruit uses a fine-tuned <b>MobileNetV3-Small</b> — a lightweight CNN
+          designed for fast on-device inference. The classifier head is replaced with
+          a custom linear layer matching the number of ripeness classes per fruit.
+        </div>""", unsafe_allow_html=True)
+        for title, desc in [
+            ("MobileNetV3-Small Backbone","Pretrained on ImageNet-1k. All layers unfrozen during fine-tuning. Depthwise separable convolutions keep inference under 3ms on CPU."),
+            ("Custom Classifier Head","nn.Linear(576 → N classes) replacing the default head. N=2 (ripe/overripe) or N=3 (unripe/ripe/overripe) depending on fruit."),
+            ("Input Normalisation","Images resized to 224×224 and normalised with ImageNet mean/std: [0.485,0.456,0.406] / [0.229,0.224,0.225]."),
+            ("ONNX Export","Exported with opset 12, dynamic batch axis. Runtime inference via ONNXRuntime — no PyTorch dependency at deploy time."),
+        ]:
+            st.markdown(f'<div class="ab"><div class="abt">{title}</div><div class="abd">{desc}</div></div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="card"><div class="card-label">Tech Stack</div>', unsafe_allow_html=True)
+        for t in ["Python 3.10","PyTorch 2.x","ONNX Runtime","MobileNetV3","Streamlit","Fruits-360","Pillow","NumPy","gdown"]:
+            st.markdown(f'<span class="tag">{t}</span>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with R:
+        st.markdown('<div class="card"><div class="card-label">Training Pipeline</div>', unsafe_allow_html=True)
+        for i,(title,desc) in enumerate([
+            ("Data Collection","Fruits-360 dataset — 100×100px images. Folder names parsed with regex to auto-assign unripe/ripe/overripe labels."),
+            ("Augmentation","Random flips, ±15° rotation, colour jitter (brightness, contrast, saturation). Training split only."),
+            ("Fine-tuning","6 epochs, AdamW optimiser, CosineAnnealingLR. CrossEntropy with 0.1 label smoothing to reduce overconfidence."),
+            ("Model Selection","Best checkpoint saved by validation accuracy. Only exported if ≥2 ripeness classes present in training data."),
+            ("Deploy","torch.onnx.export with dynamic batch axis. Served via ONNXRuntime in Streamlit — GPU not required."),
+        ], 1):
+            st.markdown(f"""<div class="ps">
+              <div class="pn">{i}</div>
+              <div><div class="pt">{title}</div><div class="pd">{desc}</div></div>
+            </div>""", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown("""<div class="card"><div class="card-label">Colour Validation</div>
+          <div style="font-size:.83rem;line-height:1.75;color:#334155;">
+            Before running the model, a fast RGB channel check validates that the uploaded image
+            plausibly contains the selected fruit — catching obvious mismatches without running
+            the full model. Images with std dev &lt;15 across all channels are flagged as blank.
+          </div>
+        </div>""", unsafe_allow_html=True)
