@@ -142,33 +142,68 @@ html, body, [class*="css"], .stApp {
 section[data-testid="stSidebar"],
 [data-testid="collapsedControl"] { display: none !important; }
 
-/* ── Top navbar ── */
+/* ── Top logo/meta bar (HTML) ── */
 .topnav {
   position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
   background: var(--bg2); border-bottom: 1px solid var(--border);
   display: flex; align-items: center;
-  padding: 0 2.5rem; height: 52px; gap: 0;
+  padding: 0 1.5rem; height: 52px; pointer-events: none;
 }
 .topnav-logo {
   font-size: 1rem; font-weight: 700; letter-spacing: -0.02em;
-  color: var(--text); margin-right: 2rem; white-space: nowrap; flex-shrink: 0;
+  color: var(--text); margin-right: 1.5rem; white-space: nowrap; flex-shrink: 0;
 }
 .topnav-logo span { color: #6366f1; }
-.topnav-links { display: flex; align-items: center; gap: 0.2rem; }
-.tnl {
-  padding: 0.36rem 0.85rem; border-radius: 7px;
-  font-size: 0.81rem; font-weight: 500; color: var(--muted);
-  cursor: pointer; transition: all 0.15s; white-space: nowrap;
-}
-.tnl:hover { background: var(--bg3); color: var(--text); }
-.tnl.act   { background: #1e1f3a; color: #a5b4fc; font-weight: 600; }
 .topnav-meta {
   margin-left: auto; font-size: 0.71rem; color: var(--muted); white-space: nowrap;
 }
 .topnav-meta b { color: var(--text); }
 
+/* ── Nav button bar — lifted into the topnav strip ── */
+.nav-btn-bar {
+  position: fixed; top: 0; left: 160px; z-index: 10000;
+  display: flex; align-items: center; height: 52px; gap: 2px;
+}
+.nav-btn-bar .stButton > button {
+  height: 34px !important;
+  padding: 0 0.9rem !important;
+  font-size: 0.81rem !important;
+  font-weight: 500 !important;
+  border-radius: 7px !important;
+  width: auto !important;
+  white-space: nowrap !important;
+}
+/* Active page button */
+.nav-btn-bar .stButton > button[kind="primary"] {
+  background: #1e1f3a !important;
+  color: #a5b4fc !important;
+  border: 1px solid #3730a3 !important;
+}
+/* Inactive page buttons */
+.nav-btn-bar .stButton > button[kind="secondary"] {
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: none !important;
+}
+.nav-btn-bar .stButton > button[kind="secondary"]:hover {
+  background: var(--bg3) !important;
+  color: var(--text) !important;
+  opacity: 1 !important;
+}
+
 /* Push content below navbar */
 .block-container { padding-top: 4.8rem !important; }
+
+/* ── Topnav link styles (keep for any remaining a.tnl) ── */
+a.tnl { text-decoration: none !important; display: inline-block; }
+
+/* Hide nav trigger row */
+.nav-trigger-row {
+  height: 0 !important; overflow: hidden !important;
+  margin: 0 !important; padding: 0 !important;
+  position: absolute !important; opacity: 0 !important;
+  pointer-events: none !important;
+}
 
 /* ── Page header ── */
 .ph { margin-bottom: 2rem; padding-bottom: 1.2rem; border-bottom: 1px solid var(--border); }
@@ -253,12 +288,12 @@ a.tnl {
 }
 a.tnl:hover { background: var(--bg3) !important; color: var(--text) !important; }
 
-/* Hide invisible st.button nav triggers — they sit in the first horizontal block */
-div[data-testid="stHorizontalBlock"]:first-of-type button {
-  display: none !important;
-}
-div[data-testid="stHorizontalBlock"]:first-of-type {
-  height: 0 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important;
+/* Hide ONLY the invisible nav trigger row via a wrapper class */
+.nav-trigger-row {
+  height: 0 !important; overflow: hidden !important;
+  margin: 0 !important; padding: 0 !important;
+  position: absolute !important; opacity: 0 !important;
+  pointer-events: none !important;
 }
 div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div[data-testid="element-container"]:has(button[kind="secondary"]) {
   display: none !important;
@@ -469,38 +504,38 @@ demo_imgs  = make_demo_images()
 # ── Navigation ──────────────────────────────────────────────────────────────────
 PAGES = ["Scanner", "Demo Mode", "Dataset Stats", "Accuracy", "About"]
 
-# Sync page from query params on first load
-qp = st.query_params
-if "p" in qp and qp["p"] in PAGES:
-    st.session_state.page = qp["p"]
-
 def go(name):
     st.session_state.page = name
-    st.query_params["p"] = name
     st.rerun()
 
-# Render fixed topnav
+# Logo + meta bar (pure HTML, no links)
 p = st.session_state.page
-links_html = "".join(
-    f'<span class="tnl act">{n}</span>' if n == p
-    else f'<a class="tnl" href="?p={n.replace(" ", "+")}">{n}</a>'
-    for n in PAGES
-)
 st.markdown(f"""
 <div class="topnav">
   <div class="topnav-logo">FruitSense <span>AI</span></div>
-  <div class="topnav-links">{links_html}</div>
+  <div class="topnav-links" id="tnlinks">
+    <!-- nav buttons rendered below via Streamlit, positioned here via CSS -->
+  </div>
   <div class="topnav-meta">
-    Models: <b>{len(sessions)}</b>&nbsp;&nbsp;Scans: <b>{len(st.session_state.history)}</b>
+    Models:&nbsp;<b>{len(sessions)}</b>&nbsp;&nbsp;Scans:&nbsp;<b>{len(st.session_state.history)}</b>
   </div>
 </div>""", unsafe_allow_html=True)
 
-# Invisible st.button row — actual click handling (hidden via CSS)
-_cols = st.columns(len(PAGES))
-for _i, _name in enumerate(PAGES):
-    with _cols[_i]:
-        if st.button(_name, key=f"_nb_{_i}", use_container_width=True):
-            go(_name)
+# The actual nav — st.columns of st.buttons, CSS-lifted into topnav position
+with st.container():
+    st.markdown('<div class="nav-btn-bar">', unsafe_allow_html=True)
+    nav_cols = st.columns([1.2, 1.2, 1.4, 1.1, 0.9] + [4])  # last col is spacer
+    for _i, _name in enumerate(PAGES):
+        with nav_cols[_i]:
+            _active = _name == p
+            if st.button(
+                _name,
+                key=f"nav_{_name}",
+                use_container_width=True,
+                type="primary" if _active else "secondary",
+            ):
+                go(_name)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 page = st.session_state.page
 
@@ -605,45 +640,140 @@ if page == "Scanner":
 # DEMO MODE
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "Demo Mode":
-    st.markdown('<div class="ph"><div class="ph-title">Demo Mode</div><div class="ph-sub">Try the scanner with built-in sample images — no upload needed.</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="ph"><div class="ph-title">Demo Mode</div><div class="ph-sub">Fetch a real fruit image online and run the AI model on it instantly.</div></div>', unsafe_allow_html=True)
 
+    # ── Online image URLs per fruit (Wikimedia Commons — direct image links) ──
+    ONLINE_IMAGES = {
+        "banana":     "https://upload.wikimedia.org/wikipedia/commons/8/8a/Banana-Chocolate-Chip-Cookies-2.jpg",
+        "apple":      "https://upload.wikimedia.org/wikipedia/commons/1/15/Red_Apple.jpg",
+        "mango":      "https://upload.wikimedia.org/wikipedia/commons/9/90/Hapus_Mango.jpg",
+        "orange":     "https://upload.wikimedia.org/wikipedia/commons/4/43/Oranges_and_orange_juice.jpg",
+        "tomato":     "https://upload.wikimedia.org/wikipedia/commons/8/89/Tomato_je.jpg",
+        "strawberry": "https://upload.wikimedia.org/wikipedia/commons/2/29/Picked_Strawberry.jpg",
+        "grape":      "https://upload.wikimedia.org/wikipedia/commons/b/bb/Table_grapes_on_white.jpg",
+        "peach":      "https://upload.wikimedia.org/wikipedia/commons/9/9e/Georgia_peach_2.jpg",
+        "kiwi":       "https://upload.wikimedia.org/wikipedia/commons/d/d3/Kiwi_aka.jpg",
+        "pear":       "https://upload.wikimedia.org/wikipedia/commons/3/39/Pears.jpg",
+        "avocado":    "https://upload.wikimedia.org/wikipedia/commons/8/88/Avocado_pears.jpg",
+    }
+
+    def fetch_online_image(url):
+        """Fetch image from URL, return PIL Image or None."""
+        import urllib.request, ssl
+        try:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
+            with urllib.request.urlopen(req, timeout=8, context=ctx) as r:
+                data = r.read()
+            return Image.open(io.BytesIO(data)).convert("RGB")
+        except Exception:
+            return None
+
+    # ── "Try Demo" section ─────────────────────────────────────────────────────
     st.markdown("""<div style="background:#1e1f3a; border:1px solid #3730a3; border-radius:10px;
-      padding:.85rem 1.1rem; margin-bottom:1.5rem; font-size:.82rem; color:#a5b4fc;">
-      Click <b>Try in Scanner</b> on any card to load that image directly into the scanner with the correct fruit selected.
+      padding:.9rem 1.2rem; margin-bottom:1.5rem; font-size:.83rem; color:#a5b4fc;">
+      Select a fruit, click <b>Try Demo</b> — we fetch a real image online and run the model live.
+      Results appear instantly below.
     </div>""", unsafe_allow_html=True)
 
-    # Show all fruits in DATASET_META in a grid
+    # Demo runner
+    if "demo_result" not in st.session_state:
+        st.session_state.demo_result = None
+
+    dc1, dc2, dc3 = st.columns([1.2, 0.8, 2], gap="medium")
+
+    with dc1:
+        demo_fruit_pick = st.selectbox(
+            "Choose a fruit",
+            options=sorted(ONLINE_IMAGES.keys()),
+            format_func=lambda x: x.capitalize(),
+            key="demo_fruit_pick"
+        )
+    with dc2:
+        st.markdown("<div style='padding-top:1.6rem;'>", unsafe_allow_html=True)
+        run_demo = st.button("Try Demo", use_container_width=True, key="run_demo_btn")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    if run_demo:
+        url = ONLINE_IMAGES.get(demo_fruit_pick, "")
+        with st.spinner(f"Fetching {demo_fruit_pick} image online…"):
+            fetched = fetch_online_image(url)
+
+        if fetched is None:
+            st.error("Could not fetch image. Check your internet connection and try again.")
+            st.session_state.demo_result = None
+        elif demo_fruit_pick not in sessions:
+            st.warning(f"No model loaded for {demo_fruit_pick}. Only banana model is included by default.")
+            st.session_state.demo_result = None
+        else:
+            with st.spinner("Running AI model…"):
+                grade, conf, probs, names = predict(fetched, demo_fruit_pick, sessions[demo_fruit_pick])
+            st.session_state.demo_result = {
+                "fruit": demo_fruit_pick,
+                "image": fetched,
+                "grade": grade,
+                "conf":  conf,
+                "probs": probs,
+                "names": names,
+                "url":   url,
+            }
+            # Add to history
+            st.session_state.history.append({
+                "fruit": demo_fruit_pick,
+                "grade": grade,
+                "confidence": round(conf, 1),
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+            })
+
+    # Show result
+    if st.session_state.demo_result:
+        res = st.session_state.demo_result
+        col = GRADE_COLOR.get(res["grade"], "#e8e8ec")
+        st.markdown("<hr>", unsafe_allow_html=True)
+        r1, r2 = st.columns([1, 1.3], gap="large")
+        with r1:
+            st.image(res["image"], caption=f"Fetched: {res['fruit'].capitalize()}", use_container_width=True)
+            st.markdown(f'<p style="font-size:.7rem; color:#6b6b78; word-break:break-all;">Source: {res['url']}</p>', unsafe_allow_html=True)
+        with r2:
+            st.markdown(f"""<div style="margin:.5rem 0 1rem;">
+              <div style="font-size:1.5rem; font-weight:700; color:{col}; letter-spacing:-0.02em;">
+                {res['fruit'].capitalize()} — {res['grade'].capitalize()}
+              </div>
+              <span class="badge b-{res['grade']}" style="margin-top:.4rem; display:inline-block;">{res['conf']:.1f}% confidence</span>
+            </div>""", unsafe_allow_html=True)
+
+            st.markdown('<div class="card-label" style="margin-top:1rem;">Ripeness Stage</div>', unsafe_allow_html=True)
+            st.markdown(timeline(res["grade"]), unsafe_allow_html=True)
+
+            st.markdown('<div class="card-label">Storage Advice</div>', unsafe_allow_html=True)
+            st.markdown(info_card(res["fruit"], res["grade"]), unsafe_allow_html=True)
+
+            st.markdown('<div class="card-label" style="margin-top:1rem;">Confidence Breakdown</div>', unsafe_allow_html=True)
+            st.markdown(conf_bars(res["names"], res["probs"]), unsafe_allow_html=True)
+
+    # ── Fruit card grid ───────────────────────────────────────────────────────
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown('<div class="card-label" style="margin-bottom:1rem;">All Available Fruits</div>', unsafe_allow_html=True)
+
     demo_fruits = list(DATASET_META.keys())
-    cols = st.columns(3, gap="medium")
+    grid_cols = st.columns(4, gap="medium")
 
     for i, fname in enumerate(demo_fruits):
         meta = DATASET_META[fname]
-        with cols[i % 3]:
-            st.markdown('<div class="dc">', unsafe_allow_html=True)
-
-            # Use PIL-generated demo image
-            demo_img = demo_imgs.get(fname)
-            if demo_img:
-                st.image(demo_img, use_container_width=True)
-
-            st.markdown(f"""<div style="padding:.7rem 1rem .3rem;">
-              <div style="font-size:.88rem; font-weight:600; color:#e8e8ec;">{fname.capitalize()}</div>
-              <div style="font-size:.72rem; color:#6b6b78; margin-top:.12rem;">
-                Accuracy: <span style="color:#4ade80; font-weight:600;">{meta['accuracy']}%</span>
-                &nbsp;·&nbsp; {meta['classes']}-class model
-              </div>
+        with grid_cols[i % 4]:
+            has_model = fname in sessions
+            status_col = "#4ade80" if has_model else "#6b6b78"
+            status_txt = f"{meta['accuracy']}% acc" if has_model else "no model"
+            st.markdown(f"""<div style="background:var(--bg2); border:1px solid var(--border);
+              border-radius:10px; padding:.8rem; margin-bottom:.8rem; text-align:center;">
+              <div style="font-size:1.6rem; margin-bottom:.4rem;">{meta['emoji']}</div>
+              <div style="font-size:.84rem; font-weight:600; color:#e8e8ec;">{fname.capitalize()}</div>
+              <div style="font-size:.7rem; color:{status_col}; margin-top:.2rem;">{status_txt}</div>
             </div>""", unsafe_allow_html=True)
-
-            if fname in sessions:
-                if st.button("Try in Scanner", key=f"demo_{fname}", use_container_width=True):
-                    st.session_state.demo_img   = demo_img
-                    st.session_state.demo_fruit = fname
-                    st.session_state.page       = "Scanner"
-                    st.rerun()
-            else:
-                st.markdown('<p style="font-size:.72rem; color:#6b6b78; padding:.3rem 1rem .7rem;">Model not loaded</p>', unsafe_allow_html=True)
-
-            st.markdown('</div><div style="margin-bottom:.9rem;"></div>', unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATASET STATS
