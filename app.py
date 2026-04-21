@@ -389,23 +389,51 @@ def validate_fruit(image, fruit):
     img = image.convert("RGB").resize((100, 100))
     arr = np.array(img, dtype=np.float32)
     r, g, b = arr[:,:,0].mean(), arr[:,:,1].mean(), arr[:,:,2].mean()
-    if np.array([arr[:,:,i].std() for i in range(3)]).mean() < 15:
+    
+    # Check 1: blank/uniform image
+    std_vals = [arr[:,:,i].std() for i in range(3)]
+    avg_std = np.mean(std_vals)
+    if avg_std < 15:
         return False, "Image appears blank or too uniform."
+
+    # Check 2: must look like a fruit (bright, saturated, not grey/skin-toned)
+    # Human skin: R~170-220, G~120-170, B~90-140 — very brownish/grey
+    # Reject if image looks like a generic indoor scene or human
+    max_ch = max(r, g, b)
+    min_ch = min(r, g, b)
+    saturation = (max_ch - min_ch) / (max_ch + 1)  # 0=grey, 1=vivid
+
+    if saturation < 0.08:
+        return False, "Image appears too grey or washed out. Please upload a clear fruit photo."
+
+    # Check 3: fruit-specific strict color checks
     checks = {
-        "banana":     (r>120 and g>100 and b<120) or (r<80 and g<70),
-        "apple":      (r>130 and r>g*1.2) or (g>100 and g>r*0.9),
-        "mango":      (r>150 and g>100 and b<100),
-        "orange":     (r>150 and g>80 and b<100),
-        "grape":      (r>80 and b>60) or (r<120 and g<100 and b<120),
-        "strawberry": (r>150 and r>g*1.5),
-        "tomato":     (r>140 and r>g*1.3),
-        "avocado":    (g>80 and r<180),
-        "peach":      (r>180 and g>120 and b>80),
-        "pear":       (g>100 and r>100),
-        "kiwi":       (g>90 and r<160),
+        "banana":     (r > 150 and g > 130 and b < 100 and r > b * 1.8),
+        "apple":      (r > 150 and r > g * 1.3 and r > b * 1.3) or (g > 120 and g > r * 1.1 and g > b * 1.1),
+        "mango":      (r > 160 and g > 110 and b < 90 and r > b * 2.0),
+        "orange":     (r > 170 and g > 90 and b < 80 and r > b * 2.5),
+        "grape":      (b > 80 and r < 160) or (r > 100 and b > r * 0.7 and g < 120),
+        "strawberry": (r > 160 and r > g * 1.8 and r > b * 2.0),
+        "tomato":     (r > 160 and r > g * 1.6 and r > b * 1.8),
+        "avocado":    (g > 100 and g > r * 0.9 and b < 120 and r < 160),
+        "peach":      (r > 190 and g > 130 and b > 90 and r > b * 1.5),
+        "pear":       (g > 120 and r > 110 and b < 120 and g > b * 1.2),
+        "kiwi":       (g > 100 and r < 150 and g > b * 1.2),
+        "cactus":     (g > 90 and g > r * 0.9 and b < 130),
+        "corn":       (r > 160 and g > 140 and b < 100 and r > b * 2.0),
+        "cherry":     (r > 130 and r > g * 1.5 and r > b * 1.5),
+        "pepper":     (r > 130 or g > 100) and saturation > 0.15,
+        "physalis":   (r > 160 and g > 110 and b < 100),
+        "zucchini":   (g > 90 and r < 170 and g > b * 0.9),
     }
-    if not checks.get(fruit, True):
-        return False, f"Colours don't match a {fruit}. Please upload a clear {fruit} photo."
+
+    passed = checks.get(fruit, True)
+    if not passed:
+        return False, (
+            f"This doesn't look like a {fruit} "
+            f"(R:{r:.0f} G:{g:.0f} B:{b:.0f}). "
+            f"Please upload a clear {fruit} photo in good lighting."
+        )
     return True, "OK"
 
 @st.cache_resource
