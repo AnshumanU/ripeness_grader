@@ -388,50 +388,59 @@ if "demo_fruit" not in st.session_state: st.session_state.demo_fruit = None
 def validate_fruit(image, fruit):
     img = image.convert("RGB").resize((100, 100))
     arr = np.array(img, dtype=np.float32)
-    r, g, b = arr[:,:,0].mean(), arr[:,:,1].mean(), arr[:,:,2].mean()
     
-    # Check 1: blank/uniform image
-    std_vals = [arr[:,:,i].std() for i in range(3)]
-    avg_std = np.mean(std_vals)
+    # Check 1: blank/uniform
+    avg_std = np.mean([arr[:,:,i].std() for i in range(3)])
     if avg_std < 15:
         return False, "Image appears blank or too uniform."
 
-    # Check 2: must look like a fruit (bright, saturated, not grey/skin-toned)
-    # Human skin: R~170-220, G~120-170, B~90-140 — very brownish/grey
-    # Reject if image looks like a generic indoor scene or human
-    max_ch = max(r, g, b)
-    min_ch = min(r, g, b)
-    saturation = (max_ch - min_ch) / (max_ch + 1)  # 0=grey, 1=vivid
-
-    if saturation < 0.08:
+    # Check 2: sample most saturated pixels (top 25%) instead of whole image
+    r_ch, g_ch, b_ch = arr[:,:,0], arr[:,:,1], arr[:,:,2]
+    max_ch = np.maximum(np.maximum(r_ch, g_ch), b_ch)
+    min_ch = np.minimum(np.minimum(r_ch, g_ch), b_ch)
+    saturation_map = (max_ch - min_ch) / (max_ch + 1e-5)
+    
+    # Take top 25% most saturated pixels
+    threshold = np.percentile(saturation_map, 75)
+    mask = saturation_map >= threshold
+    
+    r = r_ch[mask].mean()
+    g = g_ch[mask].mean()
+    b = b_ch[mask].mean()
+    
+    # Overall saturation check — reject grey/washed scenes
+    if saturation_map.mean() < 0.06:
         return False, "Image appears too grey or washed out. Please upload a clear fruit photo."
 
-    # Check 3: fruit-specific strict color checks
+    # Check 3: fruit-specific checks on saturated pixels
     checks = {
-        "banana":     (r > 150 and g > 130 and b < 100 and r > b * 1.8),
-        "apple":      (r > 150 and r > g * 1.3 and r > b * 1.3) or (g > 120 and g > r * 1.1 and g > b * 1.1),
-        "mango":      (r > 160 and g > 110 and b < 90 and r > b * 2.0),
-        "orange":     (r > 170 and g > 90 and b < 80 and r > b * 2.5),
-        "grape":      (b > 80 and r < 160) or (r > 100 and b > r * 0.7 and g < 120),
-        "strawberry": (r > 160 and r > g * 1.8 and r > b * 2.0),
-        "tomato":     (r > 160 and r > g * 1.6 and r > b * 1.8),
-        "avocado":    (g > 100 and g > r * 0.9 and b < 120 and r < 160),
-        "peach":      (r > 190 and g > 130 and b > 90 and r > b * 1.5),
-        "pear":       (g > 120 and r > 110 and b < 120 and g > b * 1.2),
-        "kiwi":       (g > 100 and r < 150 and g > b * 1.2),
-        "cactus":     (g > 90 and g > r * 0.9 and b < 130),
-        "corn":       (r > 160 and g > 140 and b < 100 and r > b * 2.0),
-        "cherry":     (r > 130 and r > g * 1.5 and r > b * 1.5),
-        "pepper":     (r > 130 or g > 100) and saturation > 0.15,
-        "physalis":   (r > 160 and g > 110 and b < 100),
-        "zucchini":   (g > 90 and r < 170 and g > b * 0.9),
+        "banana":     (r > 150 and g > 130 and b < 110 and r > b * 1.5),
+        "apple":      (r > 150 and r > g * 1.2) or (g > 120 and g > r * 1.05),
+        "mango":      (r > 160 and g > 100 and b < 100),
+        "orange":     (r > 170 and g > 90 and b < 90),
+        "grape":      (r < 160 and b > 60) or (r > 80 and b > r * 0.6),
+        "strawberry": (r > 160 and r > g * 1.6),
+        "tomato":     (r > 160 and r > g * 1.4),
+        "avocado":    (g > 90 and r < 170),
+        "peach":      (r > 180 and g > 120 and b > 80),
+        "pear":       (g > 110 and r > 100 and b < 130),
+        "kiwi":       (g > 100 and r < 160),
+        # Dark fruits — cherries are very dark red/purple
+        "cherry":     (r > g * 1.1 and r > b * 1.05 and r < 200),
+        "grape":      (r < 180 and b > 50),
+        # Others
+        "cactus":     (g > 80 and g > r * 0.85),
+        "corn":       (r > 150 and g > 130 and b < 110),
+        "pepper":     (r > 120 or g > 100),
+        "physalis":   (r > 150 and g > 100 and b < 110),
+        "zucchini":   (g > 85 and r < 180),
     }
 
     passed = checks.get(fruit, True)
     if not passed:
         return False, (
             f"This doesn't look like a {fruit} "
-            f"(R:{r:.0f} G:{g:.0f} B:{b:.0f}). "
+            f"(R:{r:.0f} G:{g:.0f} B:{b:.0f} on saturated pixels). "
             f"Please upload a clear {fruit} photo in good lighting."
         )
     return True, "OK"
