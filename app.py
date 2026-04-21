@@ -13,7 +13,7 @@ st.set_page_config(
     page_title="FruitSense AI",
     page_icon="🍎",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -138,13 +138,37 @@ html, body, [class*="css"], .stApp {
 #MainMenu, footer, header { visibility: hidden; }
 .stDeployButton { display: none !important; }
 
-/* ── Sidebar ── */
-section[data-testid="stSidebar"] {
-  background: var(--bg2) !important;
-  border-right: 1px solid var(--border) !important;
-  min-width: 210px !important;
+/* ── Hide sidebar & toggle button ── */
+section[data-testid="stSidebar"],
+[data-testid="collapsedControl"] { display: none !important; }
+
+/* ── Top navbar ── */
+.topnav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 2.5rem; height: 52px; gap: 0;
 }
-section[data-testid="stSidebar"] .block-container { padding: 1.5rem 1.1rem !important; }
+.topnav-logo {
+  font-size: 1rem; font-weight: 700; letter-spacing: -0.02em;
+  color: var(--text); margin-right: 2rem; white-space: nowrap; flex-shrink: 0;
+}
+.topnav-logo span { color: #6366f1; }
+.topnav-links { display: flex; align-items: center; gap: 0.2rem; }
+.tnl {
+  padding: 0.36rem 0.85rem; border-radius: 7px;
+  font-size: 0.81rem; font-weight: 500; color: var(--muted);
+  cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.tnl:hover { background: var(--bg3); color: var(--text); }
+.tnl.act   { background: #1e1f3a; color: #a5b4fc; font-weight: 600; }
+.topnav-meta {
+  margin-left: auto; font-size: 0.71rem; color: var(--muted); white-space: nowrap;
+}
+.topnav-meta b { color: var(--text); }
+
+/* Push content below navbar */
+.block-container { padding-top: 4.8rem !important; }
 
 /* ── Page header ── */
 .ph { margin-bottom: 2rem; padding-bottom: 1.2rem; border-bottom: 1px solid var(--border); }
@@ -222,6 +246,26 @@ section[data-testid="stSidebar"] .block-container { padding: 1.5rem 1.1rem !impo
 /* ── Demo card ── */
 .dc { background:var(--bg2); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
 
+/* ── Topnav link styles ── */
+a.tnl {
+  text-decoration: none !important;
+  display: inline-block;
+}
+a.tnl:hover { background: var(--bg3) !important; color: var(--text) !important; }
+
+/* Hide invisible st.button nav triggers — they sit in the first horizontal block */
+div[data-testid="stHorizontalBlock"]:first-of-type button {
+  display: none !important;
+}
+div[data-testid="stHorizontalBlock"]:first-of-type {
+  height: 0 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important;
+}
+div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"] > div[data-testid="element-container"]:has(button[kind="secondary"]) {
+  display: none !important;
+}
+/* Hide the entire nav row of st.columns buttons */
+.nav-btn-row { display: none !important; }
+
 /* ── Buttons ── */
 .stButton > button {
   background: #6366f1 !important;
@@ -238,23 +282,7 @@ section[data-testid="stSidebar"] .block-container { padding: 1.5rem 1.1rem !impo
 }
 .stButton > button:hover { opacity: .85 !important; }
 
-/* ── Sidebar nav buttons ── */
-section[data-testid="stSidebar"] .stButton > button {
-  background: transparent !important;
-  color: var(--muted) !important;
-  border: none !important;
-  text-align: left !important;
-  padding: .48rem .7rem !important;
-  border-radius: 8px !important;
-  font-weight: 500 !important;
-  font-size: .84rem !important;
-  letter-spacing: 0 !important;
-}
-section[data-testid="stSidebar"] .stButton > button:hover {
-  background: var(--bg3) !important;
-  color: var(--text) !important;
-  opacity: 1 !important;
-}
+
 
 /* ── Inputs ── */
 .stSelectbox > div > div, div[data-baseweb="select"] > div {
@@ -438,33 +466,41 @@ done       = download_models()
 sessions   = load_models(done)
 demo_imgs  = make_demo_images()
 
-# ── Sidebar ────────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("""
-    <div style="font-size:1.25rem; font-weight:700; letter-spacing:-0.02em;
-      padding:.3rem 0 1.1rem; border-bottom:1px solid #2e2e34; margin-bottom:.9rem; color:#e8e8ec;">
-      FruitSense <span style="color:#6366f1;">AI</span>
-    </div>""", unsafe_allow_html=True)
+# ── Navigation ──────────────────────────────────────────────────────────────────
+PAGES = ["Scanner", "Demo Mode", "Dataset Stats", "Accuracy", "About"]
 
-    for icon, name in [("", "Scanner"), ("", "Demo Mode"), ("", "Dataset Stats"), ("", "Accuracy"), ("", "About")]:
-        label_map = {
-            "Scanner":      "Scanner",
-            "Demo Mode":    "Demo Mode",
-            "Dataset Stats":"Dataset Stats",
-            "Accuracy":     "Accuracy",
-            "About":        "About",
-        }
-        display = f"**{name}**" if st.session_state.page == name else name
-        if st.button(display, key=f"nav_{name}", use_container_width=True):
-            st.session_state.page = name
-            st.rerun()
+# Sync page from query params on first load
+qp = st.query_params
+if "p" in qp and qp["p"] in PAGES:
+    st.session_state.page = qp["p"]
 
-    st.markdown("<hr>", unsafe_allow_html=True)
-    st.markdown(
-        f"<p style='font-size:.7rem; color:#6b6b78; line-height:1.8;'>"
-        f"Models loaded: <span style='color:#e8e8ec; font-weight:600;'>{len(sessions)}</span><br>"
-        f"Session scans: <span style='color:#e8e8ec; font-weight:600;'>{len(st.session_state.history)}</span>"
-        f"</p>", unsafe_allow_html=True)
+def go(name):
+    st.session_state.page = name
+    st.query_params["p"] = name
+    st.rerun()
+
+# Render fixed topnav
+p = st.session_state.page
+links_html = "".join(
+    f'<span class="tnl act">{n}</span>' if n == p
+    else f'<a class="tnl" href="?p={n.replace(" ", "+")}">{n}</a>'
+    for n in PAGES
+)
+st.markdown(f"""
+<div class="topnav">
+  <div class="topnav-logo">FruitSense <span>AI</span></div>
+  <div class="topnav-links">{links_html}</div>
+  <div class="topnav-meta">
+    Models: <b>{len(sessions)}</b>&nbsp;&nbsp;Scans: <b>{len(st.session_state.history)}</b>
+  </div>
+</div>""", unsafe_allow_html=True)
+
+# Invisible st.button row — actual click handling (hidden via CSS)
+_cols = st.columns(len(PAGES))
+for _i, _name in enumerate(PAGES):
+    with _cols[_i]:
+        if st.button(_name, key=f"_nb_{_i}", use_container_width=True):
+            go(_name)
 
 page = st.session_state.page
 
