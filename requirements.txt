@@ -1,7 +1,8 @@
-streamlit
+fastapi
+uvicorn
 onnxruntime
+Pillow
 numpy
-pillow
+python-jose[cryptography]
+passlib[bcrypt]
 gdown
-torch
-torchvision
