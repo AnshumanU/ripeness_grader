@@ -50,7 +50,7 @@ export default function UploadPredict() {
 
     try {
       const res = await axios.post(
-        `http://localhost:8000/predict?fruit=${fruit}`,
+        `${import.meta.env.VITE_API_URL}/predict?fruit=${fruit}`,
         form
       )
 
