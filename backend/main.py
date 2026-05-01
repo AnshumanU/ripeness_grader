@@ -24,17 +24,11 @@ app = FastAPI(title="FruitSense AI API", version="2.0.0")
 # ── CORS — update these origins for your Vercel domain ─────────────────────────
 app.add_middleware(
     CORSMiddleware,
-  allow_origins=[
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "https://ripeness-grader.vercel.app/",  # ← add your exact Vercel URL
-    "https://*.vercel.app",
-],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # ── Constants ───────────────────────────────────────────────────────────────────
 MODEL_DIR            = "models"
 IMG_SIZE             = 224
