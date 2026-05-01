@@ -2,16 +2,8 @@ import { useRef, useState, useCallback } from "react"
 import axios from "axios"
 
 const FRUITS = [
-  "banana",
-  "orange",
-  "tomato",
-  "avocado",
-  "cherry",
-  "corn",
-  "pepper",
-  "physalis",
-  "zucchini",
-  "cactus"
+  "banana", "orange", "tomato", "avocado", "cherry",
+  "corn", "pepper", "physalis", "zucchini", "cactus"
 ]
 const COLORS = { ripe: "#2ecc71", overripe: "#e74c3c", unripe: "#f39c12" }
 
@@ -57,9 +49,12 @@ export default function CameraPredict() {
     canvas.toBlob(async (blob) => {
       const form = new FormData()
       form.append("file", blob, "capture.jpg")
+      form.append("fruit", fruit) // ← also send as form field
+
       try {
         const res = await axios.post(
-          `${import.meta.env.VITE_API_URL}/predict?fruit=${fruit}`, form
+          `${import.meta.env.VITE_API_URL}/predict?fruit=${fruit}`,
+          form
         )
         if (res.data.error) {
           setError(res.data.error)
@@ -67,23 +62,26 @@ export default function CameraPredict() {
           setResult(res.data)
         }
       } catch (e) {
-        setError("Could not connect to server. Is the backend running?")
+        setError("Detection failed. Make sure the backend is running.")
       }
       setLoading(false)
     }, "image/jpeg")
   }, [fruit])
 
+  // Flask returns result.prediction (not result.grade)
+  const grade = result?.prediction
+
   return (
     <div>
       {/* Fruit selector */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
         {FRUITS.map(f => (
           <button key={f}
             onClick={() => { setFruit(f); setResult(null); setError(null) }}
             style={{
               padding: "6px 18px", borderRadius: 6, cursor: "pointer",
               background: fruit === f ? "#1b4332" : "#f0f0f0",
-              color:      fruit === f ? "#fff"    : "#333",
+              color: fruit === f ? "#fff" : "#333",
               border: "none", fontWeight: 500, textTransform: "capitalize"
             }}>{f}</button>
         ))}
@@ -97,9 +95,7 @@ export default function CameraPredict() {
       }}>
         <video ref={videoRef} autoPlay playsInline muted
           style={{ width: "100%", display: active ? "block" : "none" }} />
-        {!active && (
-          <p style={{ color: "#666", margin: 0 }}>Camera is off</p>
-        )}
+        {!active && <p style={{ color: "#666", margin: 0 }}>Camera is off</p>}
         <canvas ref={canvasRef} style={{ display: "none" }} />
       </div>
 
@@ -130,7 +126,7 @@ export default function CameraPredict() {
           style={{ width: "100%", borderRadius: 10, marginBottom: 16 }} />
       )}
 
-      {/* Error message */}
+      {/* Error */}
       {error && (
         <div style={{
           marginTop: 10, padding: 16, borderRadius: 12,
@@ -139,33 +135,37 @@ export default function CameraPredict() {
           <p style={{ color: "#e74c3c", fontWeight: 600, margin: "0 0 4px", fontSize: 15 }}>
             Cannot predict
           </p>
-          <p style={{ color: "#c0392b", fontSize: 14, margin: 0 }}>
-            {error}
-          </p>
+          <p style={{ color: "#c0392b", fontSize: 14, margin: 0 }}>{error}</p>
         </div>
       )}
 
-      {/* Success result */}
+      {/* Result — uses result.prediction not result.grade */}
       {result && (
         <div style={{ padding: 20, borderRadius: 12, border: "1px solid #eee", marginTop: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
             <span style={{
-              background: COLORS[result.grade] || "#888", color: "#fff",
+              background: COLORS[grade] || "#888", color: "#fff",
               padding: "4px 14px", borderRadius: 20, fontWeight: 600,
               textTransform: "capitalize"
-            }}>{result.grade}</span>
+            }}>
+              {grade}  {/* ← result.prediction */}
+            </span>
             <span style={{ color: "#666" }}>{result.confidence.toFixed(1)}% confidence</span>
           </div>
+
+          {/* Probability bars */}
           {Object.entries(result.all_probs).map(([cls, prob]) => (
             <div key={cls} style={{ marginBottom: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between",
-                            fontSize: 13, marginBottom: 4 }}>
+              <div style={{
+                display: "flex", justifyContent: "space-between",
+                fontSize: 13, marginBottom: 4
+              }}>
                 <span style={{ textTransform: "capitalize" }}>{cls}</span>
-                <span>{prob.toFixed(1)}%</span>
+                <span>{(prob * 100).toFixed(1)}%</span>
               </div>
               <div style={{ background: "#f0f0f0", borderRadius: 4, height: 10 }}>
                 <div style={{
-                  width: `${prob}%`, height: "100%", borderRadius: 4,
+                  width: `${prob * 100}%`, height: "100%", borderRadius: 4,
                   background: COLORS[cls] || "#888", transition: "width 0.5s"
                 }} />
               </div>
