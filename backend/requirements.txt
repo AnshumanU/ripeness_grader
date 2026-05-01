@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+onnxruntime
+Pillow
+numpy
+python-jose[cryptography]
+passlib[bcrypt]
+gdown
+python-multipart
