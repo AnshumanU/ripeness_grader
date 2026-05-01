@@ -24,13 +24,12 @@ app = FastAPI(title="FruitSense AI API", version="2.0.0")
 # ── CORS — update these origins for your Vercel domain ─────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",            # Next.js local dev
-        "http://localhost:5173",            # Vite local dev
-        "https://*.vercel.app",             # All Vercel preview deployments
-        "https://fruitsense.vercel.app",    # Your production Vercel URL (change this)
-        "https://yourdomain.com",           # Custom domain (change or remove)
-    ],
+  allow_origins=[
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://ripeness-grader.vercel.app",  # ← add your exact Vercel URL
+    "https://*.vercel.app",
+],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
