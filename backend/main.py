@@ -27,7 +27,7 @@ app.add_middleware(
   allow_origins=[
     "http://localhost:3000",
     "http://localhost:5173",
-    "https://ripeness-grader.vercel.app",  # ← add your exact Vercel URL
+    "https://ripeness-grader.onrender.com",  # ← add your exact Vercel URL
     "https://*.vercel.app",
 ],
     allow_credentials=True,
