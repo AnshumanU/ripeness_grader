@@ -5,6 +5,7 @@ const FRUITS = [
   "banana", "orange", "tomato", "avocado", "cherry",
   "corn", "pepper", "physalis", "zucchini", "cactus"
 ]
+
 const COLORS = {
   ripe: "#2ecc71",
   overripe: "#e74c3c",
@@ -36,35 +37,48 @@ export default function UploadPredict() {
 
     const form = new FormData()
     form.append("file", file)
-    form.append("fruit", fruit) // ← also send as form field (Flask reads request.form)
 
     try {
+      const apiUrl = import.meta.env.VITE_API_URL
+      console.log("API URL:", apiUrl)
+      console.log("Fruit:", fruit)
+
       const res = await axios.post(
-        `${import.meta.env.VITE_API_URL}/predict`,
-        form
+        `${apiUrl}/predict?fruit=${fruit}`,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } }
       )
-      console.log(res.data)
+
+      console.log("Full response:", res.data)
+
       if (res.data.error) {
         setError(res.data.error)
       } else {
         setResult(res.data)
       }
     } catch (e) {
-      console.error(e)
-      setError("Detection failed. Make sure the backend is running.")
+      console.error("Error:", e)
+      console.error("Status:", e.response?.status)
+      console.error("Data:", e.response?.data)
+      setError(
+        `Error ${e.response?.status || ""}: ${
+          JSON.stringify(e.response?.data) || "Could not connect to server"
+        }`
+      )
     }
+
     setLoading(false)
   }
 
-  // result.prediction is what Flask returns (not result.grade)
-  const grade = result?.prediction
+  const grade = result?.grade
 
   return (
     <div>
       {/* Fruit selector */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
         {FRUITS.map((f) => (
-          <button key={f} onClick={() => { setFruit(f); setResult(null); setError(null) }}
+          <button key={f}
+            onClick={() => { setFruit(f); setResult(null); setError(null) }}
             style={{
               padding: "6px 18px", borderRadius: 6, cursor: "pointer",
               background: fruit === f ? "#1b4332" : "#f0f0f0",
@@ -112,7 +126,7 @@ export default function UploadPredict() {
         </div>
       )}
 
-      {/* Result — uses result.prediction not result.grade */}
+      {/* Result */}
       {result && (
         <div style={{ marginTop: 24, padding: 20, borderRadius: 12, border: "1px solid #eee" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
@@ -121,14 +135,13 @@ export default function UploadPredict() {
               padding: "4px 14px", borderRadius: 20, fontWeight: 600,
               fontSize: 15, textTransform: "capitalize",
             }}>
-              {grade}  {/* ← result.prediction */}
+              {grade}
             </span>
             <span style={{ color: "#666" }}>
               {result.confidence.toFixed(1)}% confidence
             </span>
           </div>
 
-          {/* Probability bars */}
           {Object.entries(result.all_probs).map(([cls, prob]) => (
             <div key={cls} style={{ marginBottom: 10 }}>
               <div style={{
@@ -136,11 +149,11 @@ export default function UploadPredict() {
                 fontSize: 13, marginBottom: 4,
               }}>
                 <span style={{ textTransform: "capitalize" }}>{cls}</span>
-                <span>{(prob * 100).toFixed(1)}%</span>
+                <span>{prob.toFixed(1)}%</span>
               </div>
               <div style={{ background: "#f0f0f0", borderRadius: 4, height: 10 }}>
                 <div style={{
-                  width: `${prob * 100}%`, height: "100%", borderRadius: 4,
+                  width: `${prob}%`, height: "100%", borderRadius: 4,
                   background: COLORS[cls] || "#888", transition: "width 0.5s"
                 }} />
               </div>
@@ -150,4 +163,4 @@ export default function UploadPredict() {
       )}
     </div>
   )
-} 
+}
