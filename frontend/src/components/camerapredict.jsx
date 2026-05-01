@@ -53,7 +53,7 @@ export default function CameraPredict() {
 
       try {
         const res = await axios.post(
-          `${import.meta.env.VITE_API_URL}/predict?fruit=${fruit}`,
+          `${import.meta.env.VITE_API_URL}/predict`,
           form
         )
         if (res.data.error) {
@@ -175,4 +175,4 @@ export default function CameraPredict() {
       )}
     </div>
   )
-}
+} 

@@ -40,7 +40,7 @@ export default function UploadPredict() {
 
     try {
       const res = await axios.post(
-        `${import.meta.env.VITE_API_URL}/predict?fruit=${fruit}`,
+        `${import.meta.env.VITE_API_URL}/predict`,
         form
       )
       console.log(res.data)
@@ -150,4 +150,4 @@ export default function UploadPredict() {
       )}
     </div>
   )
-}
+} 
