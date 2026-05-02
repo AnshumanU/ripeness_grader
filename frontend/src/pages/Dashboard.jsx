@@ -28,6 +28,22 @@ const GRADE_TIPS = {
   overripe: "Best used in smoothies or cooking.",
 };
 
+const TECH_STACK = [
+  { icon: "🧠", name: "ONNX Runtime", desc: "Runs 10 custom-trained fruit ripeness models" },
+  { icon: "⚡", name: "FastAPI", desc: "High-performance Python backend API" },
+  { icon: "⚛️", name: "React + Vite", desc: "Fast, modern frontend with glassmorphism UI" },
+  { icon: "🐳", name: "Docker", desc: "Containerized backend for consistent deployment" },
+  { icon: "🚀", name: "Render", desc: "Cloud hosting for the AI backend" },
+  { icon: "▲", name: "Vercel", desc: "Edge-deployed frontend for global speed" },
+];
+
+const HOW_IT_WORKS = [
+  { step: "1", icon: "📸", title: "Upload a Photo", desc: "Take or upload a clear photo of any supported fruit." },
+  { step: "2", icon: "🤖", title: "AI Detection", desc: "Our models analyze color, texture, and visual patterns." },
+  { step: "3", icon: "📊", title: "Ripeness Grade", desc: "Get instant results: Unripe, Ripe, or Overripe with confidence scores." },
+  { step: "4", icon: "📋", title: "Track History", desc: "Every scan is saved locally so you can track freshness over time." },
+];
+
 const LOCAL_HISTORY_KEY = "fruitsense_history";
 
 function ConfBar({ label, value, color }) {
@@ -57,7 +73,7 @@ export default function Dashboard({ theme, toggleTheme }) {
   const [listening, setListening] = useState(false);
   const [voiceText, setVoiceText] = useState("");
   const [error, setError] = useState("");
-  const [selectedFruit, setSelectedFruit] = useState(null); // null = auto detect
+  const [selectedFruit, setSelectedFruit] = useState(null);
   const fileRef = useRef();
   const recognitionRef = useRef(null);
 
@@ -66,7 +82,6 @@ export default function Dashboard({ theme, toggleTheme }) {
     initVoice();
   }, []);
 
-  // ── Local history ─────────────────────────────────────────────────────────
   const loadLocalHistory = () => {
     try {
       const stored = localStorage.getItem(LOCAL_HISTORY_KEY);
@@ -89,7 +104,6 @@ export default function Dashboard({ theme, toggleTheme }) {
     setHistory([]);
   };
 
-  // ── Voice ─────────────────────────────────────────────────────────────────
   const initVoice = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return;
@@ -114,7 +128,6 @@ export default function Dashboard({ theme, toggleTheme }) {
     else { setVoiceText(""); recognitionRef.current.start(); setListening(true); }
   };
 
-  // ── File handling ─────────────────────────────────────────────────────────
   const handleFile = (file) => {
     if (!file || !file.type.startsWith("image/")) { setError("Please upload a valid image."); return; }
     setError(""); setResult(null);
@@ -127,7 +140,6 @@ export default function Dashboard({ theme, toggleTheme }) {
     handleFile(e.dataTransfer.files[0]);
   }, []);
 
-  // ── Detect ────────────────────────────────────────────────────────────────
   const handleDetect = async () => {
     if (!image) { setError("Please upload a fruit image first."); return; }
     setScanning(true); setError(""); setResult(null);
@@ -136,11 +148,9 @@ export default function Dashboard({ theme, toggleTheme }) {
     try {
       let res;
       if (selectedFruit) {
-        // Manual fruit selected — use /predict
         res = await api.post(`/predict?fruit=${selectedFruit}`, form);
         if (!res.data.fruit) res.data.fruit = selectedFruit;
       } else {
-        // Auto detect
         res = await api.post("/detect", form);
       }
       setResult(res.data);
@@ -187,12 +197,10 @@ export default function Dashboard({ theme, toggleTheme }) {
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "96px 20px 0" }}>
 
         {/* Tabs */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-          {["scan", "history"].map(t => (
-            <button key={t} className={`tab-btn ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
-              {t === "scan" ? "🔍 Detect" : `📋 History (${history.length})`}
-            </button>
-          ))}
+        <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
+          <button className={`tab-btn ${tab === "scan" ? "active" : ""}`} onClick={() => setTab("scan")}>🔍 Detect</button>
+          <button className={`tab-btn ${tab === "history" ? "active" : ""}`} onClick={() => setTab("history")}>📋 History ({history.length})</button>
+          <button className={`tab-btn ${tab === "about" ? "active" : ""}`} onClick={() => setTab("about")}>ℹ️ About</button>
         </div>
 
         {/* ── SCAN TAB ── */}
@@ -206,22 +214,13 @@ export default function Dashboard({ theme, toggleTheme }) {
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: 8 }}>
                 {FRUITS.map(f => (
-                  <button
-                    key={f.key}
-                    onClick={() => setSelectedFruit(selectedFruit === f.key ? null : f.key)}
+                  <button key={f.key} onClick={() => setSelectedFruit(selectedFruit === f.key ? null : f.key)}
                     style={{
                       background: selectedFruit === f.key ? "var(--accent-glow)" : "var(--surface)",
                       border: selectedFruit === f.key ? "1px solid var(--accent)" : "1px solid var(--border)",
-                      borderRadius: 12,
-                      padding: "10px 6px",
-                      cursor: "pointer",
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: 4,
-                      transition: "all 0.15s",
-                    }}
-                  >
+                      borderRadius: 12, padding: "10px 6px", cursor: "pointer",
+                      display: "flex", flexDirection: "column", alignItems: "center", gap: 4, transition: "all 0.15s",
+                    }}>
                     <span style={{ fontSize: 24 }}>{FRUIT_EMOJI[f.key]}</span>
                     <span style={{ fontSize: 11, color: selectedFruit === f.key ? "var(--accent)" : "var(--text-muted)", fontWeight: selectedFruit === f.key ? 700 : 400 }}>
                       {f.label}
@@ -229,26 +228,17 @@ export default function Dashboard({ theme, toggleTheme }) {
                   </button>
                 ))}
               </div>
-              {selectedFruit && (
-                <p style={{ fontSize: 12, color: "var(--accent)", marginTop: 10, textAlign: "center" }}>
-                  ✓ {selectedFruit.toUpperCase()} selected — will use ripeness model directly
-                </p>
-              )}
-              {!selectedFruit && (
-                <p style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 10, textAlign: "center" }}>
-                  🤖 Auto-detect mode — AI will identify the fruit
-                </p>
-              )}
+              <p style={{ fontSize: 12, marginTop: 10, textAlign: "center", color: selectedFruit ? "var(--accent)" : "var(--text-dim)" }}>
+                {selectedFruit ? `✓ ${selectedFruit.toUpperCase()} selected — ripeness model active` : "🤖 Auto-detect mode — AI will identify the fruit"}
+              </p>
             </div>
 
             {/* Upload zone */}
-            <div
-              className={`upload-zone ${dragOver ? "drag-over" : ""}`}
+            <div className={`upload-zone ${dragOver ? "drag-over" : ""}`}
               onDragOver={e => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
-              onClick={() => fileRef.current?.click()}
-            >
+              onClick={() => fileRef.current?.click()}>
               <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
                 onChange={e => handleFile(e.target.files[0])} />
               {preview ? (
@@ -303,9 +293,7 @@ export default function Dashboard({ theme, toggleTheme }) {
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
                   <div>
                     <div style={{ fontSize: 48 }}>{FRUIT_EMOJI[result.fruit] || "🍽️"}</div>
-                    <h2 className="font-display" style={{ fontSize: 24, fontWeight: 800, textTransform: "capitalize", marginTop: 4 }}>
-                      {result.fruit}
-                    </h2>
+                    <h2 className="font-display" style={{ fontSize: 24, fontWeight: 800, textTransform: "capitalize", marginTop: 4 }}>{result.fruit}</h2>
                   </div>
                   <span className={`grade-badge grade-${result.grade}`}>{result.grade}</span>
                 </div>
@@ -316,9 +304,7 @@ export default function Dashboard({ theme, toggleTheme }) {
                   ))}
                 </div>
                 {result.auto_detected && (
-                  <p style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 12, textAlign: "right" }}>
-                    ✨ Auto-detected · {result.confidence}% confident
-                  </p>
+                  <p style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 12, textAlign: "right" }}>✨ Auto-detected · {result.confidence}% confident</p>
                 )}
                 {result.warning && (
                   <div className="alert" style={{ background: "rgba(250,204,21,0.1)", border: "1px solid rgba(250,204,21,0.2)", color: "#facc15", marginTop: 12, fontSize: 13 }}>
@@ -363,6 +349,77 @@ export default function Dashboard({ theme, toggleTheme }) {
                 </div>
               ))
             )}
+          </div>
+        )}
+
+        {/* ── ABOUT TAB ── */}
+        {tab === "about" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+            {/* Hero */}
+            <div className="glass anim-fade-up" style={{ padding: 32, textAlign: "center" }}>
+              <div style={{ fontSize: 56, marginBottom: 12 }}>🍃</div>
+              <h1 className="font-display" style={{ fontSize: 28, fontWeight: 800, background: "linear-gradient(135deg, var(--accent), var(--accent2))", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: 12 }}>
+                FruitSense AI
+              </h1>
+              <p style={{ color: "var(--text-muted)", fontSize: 15, lineHeight: 1.7, maxWidth: 480, margin: "0 auto" }}>
+                An AI-powered fruit ripeness detection system trained on 10 different fruits.
+                Upload any fruit photo and get instant ripeness analysis — no expertise needed.
+              </p>
+              <div style={{ display: "flex", justifyContent: "center", gap: 12, marginTop: 20, flexWrap: "wrap" }}>
+                <span className="grade-badge grade-ripe">10 Fruit Models</span>
+                <span className="grade-badge grade-unripe">Real-time AI</span>
+                <span className="grade-badge" style={{ background: "rgba(34,211,238,0.15)", color: "#22d3ee", border: "1px solid rgba(34,211,238,0.3)" }}>Open Source</span>
+              </div>
+            </div>
+
+            {/* How it works */}
+            <div className="glass anim-fade-up" style={{ padding: 24 }}>
+              <h2 className="font-display" style={{ fontWeight: 700, fontSize: 18, marginBottom: 20 }}>How It Works</h2>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {HOW_IT_WORKS.map(s => (
+                  <div key={s.step} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, padding: 16 }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>{s.icon}</div>
+                    <div className="font-display" style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{s.title}</div>
+                    <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 }}>{s.desc}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Supported fruits */}
+            <div className="glass anim-fade-up" style={{ padding: 24 }}>
+              <h2 className="font-display" style={{ fontWeight: 700, fontSize: 18, marginBottom: 16 }}>Supported Fruits</h2>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                {FRUITS.map(f => (
+                  <div key={f.key} style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 999, padding: "6px 14px" }}>
+                    <span>{FRUIT_EMOJI[f.key]}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>{f.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Tech stack */}
+            <div className="glass anim-fade-up" style={{ padding: 24 }}>
+              <h2 className="font-display" style={{ fontWeight: 700, fontSize: 18, marginBottom: 16 }}>Tech Stack</h2>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {TECH_STACK.map(t => (
+                  <div key={t.name} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 28, width: 40, textAlign: "center", flexShrink: 0 }}>{t.icon}</div>
+                    <div>
+                      <div className="font-display" style={{ fontWeight: 700, fontSize: 14 }}>{t.name}</div>
+                      <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{t.desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ textAlign: "center", padding: "16px 0", color: "var(--text-dim)", fontSize: 13 }}>
+              Built with ❤️ · FruitSense AI v2.0
+            </div>
           </div>
         )}
       </div>
