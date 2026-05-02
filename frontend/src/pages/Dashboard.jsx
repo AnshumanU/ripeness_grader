@@ -54,7 +54,7 @@ export default function Dashboard() {
     form.append("fruit", selectedFruit);
 
     try {
-      const res = await api.post("/predict", form);
+      const res = await api.post(`/predict?fruit=${selectedFruit}`, form);
       setResult(res.data);
     } catch {
       setError("Detection failed. Make sure the backend is running.");
