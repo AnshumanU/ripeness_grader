@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
 
 const FRUIT_EMOJI = {
@@ -35,15 +34,12 @@ function ConfBar({ label, value, color }) {
 }
 
 export default function Dashboard({ theme, toggleTheme }) {
-  const nav = useNavigate();
-  const [user, setUser] = useState(null);
   const [tab, setTab] = useState("scan");
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState(null);
   const [history, setHistory] = useState([]);
-  const [histLoading, setHistLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceText, setVoiceText] = useState("");
@@ -51,13 +47,8 @@ export default function Dashboard({ theme, toggleTheme }) {
   const fileRef = useRef();
   const recognitionRef = useRef(null);
 
-  // ── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    const u = localStorage.getItem("user");
-    if (!u) { nav("/login"); return; }
-    setUser(JSON.parse(u));
     loadLocalHistory();
-    fetchHistory();
     initVoice();
   }, []);
 
@@ -69,31 +60,34 @@ export default function Dashboard({ theme, toggleTheme }) {
     } catch {}
   };
 
-  const saveLocalHistory = (newEntry) => {
+  const saveLocalHistory = (entry) => {
     try {
       const stored = localStorage.getItem(LOCAL_HISTORY_KEY);
       const existing = stored ? JSON.parse(stored) : [];
-      const updated = [newEntry, ...existing].slice(0, 50);
+      const updated = [entry, ...existing].slice(0, 50);
       localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(updated));
       setHistory(updated);
     } catch {}
   };
 
-  // ── Voice recognition ─────────────────────────────────────────────────────
+  const clearHistory = () => {
+    localStorage.removeItem(LOCAL_HISTORY_KEY);
+    setHistory([]);
+  };
+
+  // ── Voice ─────────────────────────────────────────────────────────────────
   const initVoice = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-    const rec = new SpeechRecognition();
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    const rec = new SR();
     rec.continuous = false;
     rec.interimResults = false;
     rec.lang = "en-US";
     rec.onresult = (e) => {
-      const transcript = e.results[0][0].transcript.toLowerCase();
-      setVoiceText(transcript);
+      const t = e.results[0][0].transcript.toLowerCase();
+      setVoiceText(t);
       setListening(false);
-      if (/(check|scan|analyze|detect|upload|fruit)/i.test(transcript)) {
-        fileRef.current?.click();
-      }
+      if (/(check|scan|analyze|detect|upload|fruit)/i.test(t)) fileRef.current?.click();
     };
     rec.onend = () => setListening(false);
     rec.onerror = () => setListening(false);
@@ -101,39 +95,25 @@ export default function Dashboard({ theme, toggleTheme }) {
   };
 
   const toggleVoice = () => {
-    if (!recognitionRef.current) {
-      setError("Voice not supported in this browser. Try Chrome.");
-      return;
-    }
-    if (listening) {
-      recognitionRef.current.stop();
-      setListening(false);
-    } else {
-      setVoiceText("");
-      recognitionRef.current.start();
-      setListening(true);
-    }
+    if (!recognitionRef.current) { setError("Voice not supported. Try Chrome."); return; }
+    if (listening) { recognitionRef.current.stop(); setListening(false); }
+    else { setVoiceText(""); recognitionRef.current.start(); setListening(true); }
   };
 
-  // ── Image handling ────────────────────────────────────────────────────────
+  // ── File handling ─────────────────────────────────────────────────────────
   const handleFile = (file) => {
-    if (!file || !file.type.startsWith("image/")) {
-      setError("Please upload a valid image file.");
-      return;
-    }
-    setError("");
-    setResult(null);
+    if (!file || !file.type.startsWith("image/")) { setError("Please upload a valid image."); return; }
+    setError(""); setResult(null);
     setImage(file);
     setPreview(URL.createObjectURL(file));
   };
 
   const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    setDragOver(false);
+    e.preventDefault(); setDragOver(false);
     handleFile(e.dataTransfer.files[0]);
   }, []);
 
-  // ── Auto detect ───────────────────────────────────────────────────────────
+  // ── Detect ────────────────────────────────────────────────────────────────
   const handleDetect = async () => {
     if (!image) { setError("Please upload a fruit image first."); return; }
     setScanning(true); setError(""); setResult(null);
@@ -143,57 +123,28 @@ export default function Dashboard({ theme, toggleTheme }) {
       const res = await api.post("/detect", form);
       setResult(res.data);
       if (!res.data.error && res.data.fruit) {
-        const entry = {
+        saveLocalHistory({
           id: Date.now().toString(),
           fruit: res.data.fruit,
           grade: res.data.grade,
           confidence: res.data.confidence,
           timestamp: new Date().toISOString(),
-        };
-        saveLocalHistory(entry);
-        fetchHistory();
+        });
       }
     } catch {
-      setError("Detection failed. Make sure the backend is running.");
+      setError("Detection failed. Check your connection.");
     } finally {
       setScanning(false);
     }
   };
 
-  // ── History ───────────────────────────────────────────────────────────────
-  const fetchHistory = async () => {
-    setHistLoading(true);
-    try {
-      const res = await api.get("/history?limit=50");
-      if (res.data.scans?.length > 0) setHistory(res.data.scans);
-    } catch {
-      // Fall back to local history silently
-    } finally {
-      setHistLoading(false);
-    }
-  };
-
-  const clearHistory = () => {
-    localStorage.removeItem(LOCAL_HISTORY_KEY);
-    setHistory([]);
-    api.delete("/history").catch(() => {});
-  };
-
-  const logout = () => {
-    localStorage.clear();
-    nav("/login");
-  };
-
-  // ── Grade color ───────────────────────────────────────────────────────────
   const gradeColor = (g) => ({ ripe: "#4ade80", unripe: "#facc15", overripe: "#f87171" }[g] || "var(--text)");
   const formatDate = (iso) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
   return (
     <div style={{ minHeight: "100vh", paddingBottom: 60 }}>
       <div className="orb-bg">
-        <div className="orb orb-1" />
-        <div className="orb orb-2" />
-        <div className="orb orb-3" />
+        <div className="orb orb-1" /><div className="orb orb-2" /><div className="orb orb-3" />
       </div>
 
       {/* Nav */}
@@ -201,13 +152,12 @@ export default function Dashboard({ theme, toggleTheme }) {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 22 }}>🍃</span>
           <span className="font-display" style={{ fontWeight: 800, fontSize: 18, background: "linear-gradient(135deg, var(--accent), var(--accent2))", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-            FruitSense
+            FruitSense AI
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <span style={{ fontSize: 13, color: "var(--text-muted)" }}>👋 {user?.name?.split(" ")[0]}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{theme === "dark" ? "🌙" : "☀️"}</span>
           <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme" />
-          <button onClick={logout} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 13, fontFamily: "inherit" }}>Sign out</button>
         </div>
       </nav>
 
@@ -217,8 +167,7 @@ export default function Dashboard({ theme, toggleTheme }) {
         {/* Tabs */}
         <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
           {["scan", "history"].map(t => (
-            <button key={t} className={`tab-btn ${tab === t ? "active" : ""}`}
-              onClick={() => { setTab(t); if (t === "history") fetchHistory(); }}>
+            <button key={t} className={`tab-btn ${tab === t ? "active" : ""}`} onClick={() => setTab(t)}>
               {t === "scan" ? "🔍 Detect" : `📋 History (${history.length})`}
             </button>
           ))}
@@ -238,7 +187,6 @@ export default function Dashboard({ theme, toggleTheme }) {
             >
               <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
                 onChange={e => handleFile(e.target.files[0])} />
-
               {preview ? (
                 <div style={{ position: "relative", display: "inline-block" }}>
                   {scanning && <div className="scan-frame" />}
@@ -249,7 +197,7 @@ export default function Dashboard({ theme, toggleTheme }) {
               ) : (
                 <div>
                   <div style={{ fontSize: 48, marginBottom: 12 }}>📸</div>
-                  <p className="font-display" style={{ fontWeight: 700, fontSize: 16, color: "var(--text)" }}>Drop a fruit photo here</p>
+                  <p className="font-display" style={{ fontWeight: 700, fontSize: 16 }}>Drop a fruit photo here</p>
                   <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>or click to browse · JPG, PNG, WEBP</p>
                 </div>
               )}
@@ -257,7 +205,7 @@ export default function Dashboard({ theme, toggleTheme }) {
 
             {/* Action row */}
             <div style={{ display: "flex", gap: 12 }}>
-              <button className={`voice-btn ${listening ? "listening" : ""}`} onClick={toggleVoice} title="Say 'scan fruit' to activate">
+              <button className={`voice-btn ${listening ? "listening" : ""}`} onClick={toggleVoice} title="Say 'scan fruit'">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
                   <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
@@ -272,7 +220,6 @@ export default function Dashboard({ theme, toggleTheme }) {
               </button>
             </div>
 
-            {/* Voice feedback */}
             {listening && (
               <div className="alert" style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.2)", color: "#f87171", display: "flex", alignItems: "center", gap: 8 }}>
                 🎙️ Listening... say "scan fruit" or "check this"
@@ -286,7 +233,7 @@ export default function Dashboard({ theme, toggleTheme }) {
 
             {error && <div className="alert alert-error">{error}</div>}
 
-            {/* Result card */}
+            {/* Result */}
             {result && !result.error && (
               <div className="glass anim-pop" style={{ padding: 24 }}>
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
@@ -298,9 +245,7 @@ export default function Dashboard({ theme, toggleTheme }) {
                   </div>
                   <span className={`grade-badge grade-${result.grade}`}>{result.grade}</span>
                 </div>
-                <p style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 16 }}>
-                  {GRADE_TIPS[result.grade]}
-                </p>
+                <p style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 16 }}>{GRADE_TIPS[result.grade]}</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {Object.entries(result.all_probs || {}).map(([label, val]) => (
                     <ConfBar key={label} label={label} value={val} color={gradeColor(label)} />
@@ -318,7 +263,6 @@ export default function Dashboard({ theme, toggleTheme }) {
                 )}
               </div>
             )}
-
             {result?.error && <div className="alert alert-error">{result.error}</div>}
           </div>
         )}
@@ -336,34 +280,26 @@ export default function Dashboard({ theme, toggleTheme }) {
               )}
             </div>
 
-            {histLoading && (
-              <div style={{ textAlign: "center", padding: 40 }}>
-                <span className="spinner" style={{ borderTopColor: "var(--accent)", borderColor: "var(--border)" }} />
-              </div>
-            )}
-
-            {!histLoading && history.length === 0 && (
+            {history.length === 0 ? (
               <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)" }}>
                 <div style={{ fontSize: 48, marginBottom: 12 }}>🍽️</div>
                 <p>No scans yet. Detect a fruit to get started!</p>
               </div>
-            )}
-
-            {history.map((s, i) => (
-              <div key={s.id || i} className="history-item" style={{ animationDelay: `${i * 0.05}s` }}>
-                <div style={{ fontSize: 32 }}>{FRUIT_EMOJI[s.fruit] || "🍽️"}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span className="font-display" style={{ fontWeight: 700, fontSize: 15, textTransform: "capitalize" }}>{s.fruit}</span>
-                    <span className={`grade-badge grade-${s.grade}`} style={{ padding: "2px 10px", fontSize: 11 }}>{s.grade}</span>
+            ) : (
+              history.map((s, i) => (
+                <div key={s.id || i} className="history-item" style={{ animationDelay: `${i * 0.05}s` }}>
+                  <div style={{ fontSize: 32 }}>{FRUIT_EMOJI[s.fruit] || "🍽️"}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span className="font-display" style={{ fontWeight: 700, fontSize: 15, textTransform: "capitalize" }}>{s.fruit}</span>
+                      <span className={`grade-badge grade-${s.grade}`} style={{ padding: "2px 10px", fontSize: 11 }}>{s.grade}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{formatDate(s.timestamp)}</div>
                   </div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{formatDate(s.timestamp)}</div>
-                </div>
-                <div style={{ textAlign: "right" }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: gradeColor(s.grade) }}>{s.confidence}%</span>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         )}
       </div>
