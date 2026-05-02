@@ -9,6 +9,19 @@ const FRUIT_EMOJI = {
   zucchini: "🥒",
 };
 
+const FRUITS = [
+  { key: "banana", label: "Banana" },
+  { key: "orange", label: "Orange" },
+  { key: "tomato", label: "Tomato" },
+  { key: "avocado", label: "Avocado" },
+  { key: "cherry", label: "Cherry" },
+  { key: "corn", label: "Corn" },
+  { key: "pepper", label: "Pepper" },
+  { key: "physalis", label: "Physalis" },
+  { key: "zucchini", label: "Zucchini" },
+  { key: "cactus", label: "Cactus" },
+];
+
 const GRADE_TIPS = {
   ripe: "Perfect to eat right now! 🎉",
   unripe: "Give it a few more days to ripen.",
@@ -44,6 +57,7 @@ export default function Dashboard({ theme, toggleTheme }) {
   const [listening, setListening] = useState(false);
   const [voiceText, setVoiceText] = useState("");
   const [error, setError] = useState("");
+  const [selectedFruit, setSelectedFruit] = useState(null); // null = auto detect
   const fileRef = useRef();
   const recognitionRef = useRef(null);
 
@@ -120,7 +134,15 @@ export default function Dashboard({ theme, toggleTheme }) {
     const form = new FormData();
     form.append("file", image);
     try {
-      const res = await api.post("/detect", form);
+      let res;
+      if (selectedFruit) {
+        // Manual fruit selected — use /predict
+        res = await api.post(`/predict?fruit=${selectedFruit}`, form);
+        if (!res.data.fruit) res.data.fruit = selectedFruit;
+      } else {
+        // Auto detect
+        res = await api.post("/detect", form);
+      }
       setResult(res.data);
       if (!res.data.error && res.data.fruit) {
         saveLocalHistory({
@@ -177,6 +199,48 @@ export default function Dashboard({ theme, toggleTheme }) {
         {tab === "scan" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
+            {/* Fruit selector grid */}
+            <div className="glass" style={{ padding: 20 }}>
+              <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12 }}>
+                Select fruit <span style={{ color: "var(--accent)" }}>(optional)</span> — or leave blank for auto-detect
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: 8 }}>
+                {FRUITS.map(f => (
+                  <button
+                    key={f.key}
+                    onClick={() => setSelectedFruit(selectedFruit === f.key ? null : f.key)}
+                    style={{
+                      background: selectedFruit === f.key ? "var(--accent-glow)" : "var(--surface)",
+                      border: selectedFruit === f.key ? "1px solid var(--accent)" : "1px solid var(--border)",
+                      borderRadius: 12,
+                      padding: "10px 6px",
+                      cursor: "pointer",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 4,
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    <span style={{ fontSize: 24 }}>{FRUIT_EMOJI[f.key]}</span>
+                    <span style={{ fontSize: 11, color: selectedFruit === f.key ? "var(--accent)" : "var(--text-muted)", fontWeight: selectedFruit === f.key ? 700 : 400 }}>
+                      {f.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {selectedFruit && (
+                <p style={{ fontSize: 12, color: "var(--accent)", marginTop: 10, textAlign: "center" }}>
+                  ✓ {selectedFruit.toUpperCase()} selected — will use ripeness model directly
+                </p>
+              )}
+              {!selectedFruit && (
+                <p style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 10, textAlign: "center" }}>
+                  🤖 Auto-detect mode — AI will identify the fruit
+                </p>
+              )}
+            </div>
+
             {/* Upload zone */}
             <div
               className={`upload-zone ${dragOver ? "drag-over" : ""}`}
@@ -216,7 +280,7 @@ export default function Dashboard({ theme, toggleTheme }) {
               <button className="btn" onClick={handleDetect} disabled={scanning || !image} style={{ flex: 1 }}>
                 {scanning
                   ? <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><span className="spinner" />Analyzing...</span>
-                  : "🤖 Auto Detect Fruit"}
+                  : selectedFruit ? `🔬 Check ${selectedFruit} Ripeness` : "🤖 Auto Detect Fruit"}
               </button>
             </div>
 
@@ -279,7 +343,6 @@ export default function Dashboard({ theme, toggleTheme }) {
                 </button>
               )}
             </div>
-
             {history.length === 0 ? (
               <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)" }}>
                 <div style={{ fontSize: 48, marginBottom: 12 }}>🍽️</div>
