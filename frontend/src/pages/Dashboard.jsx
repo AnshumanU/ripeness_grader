@@ -1,42 +1,121 @@
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
 
 const FRUIT_EMOJI = {
   banana: "🍌", apple: "🍎", mango: "🥭", orange: "🍊",
   tomato: "🍅", strawberry: "🍓", grape: "🍇", peach: "🍑",
-  kiwi: "🥝", pear: "🍐", avocado: "🥑", lemon: "🍋",
-  cherry: "🍒", corn: "🌽", pepper: "🌶️", physalis: "🫐",
-  zucchini: "🥒", cactus: "🌵",
+  kiwi: "🥝", pear: "🍐", avocado: "🥑", cherry: "🍒",
+  corn: "🌽", pepper: "🫑", physalis: "🟠", cactus: "🌵",
+  zucchini: "🥒",
 };
 
-const AVAILABLE_FRUITS = [
-  "banana", "orange", "tomato", "avocado", "cherry",
-  "corn", "pepper", "physalis", "zucchini", "cactus"
-];
-
-const GRADE_COLORS = {
-  ripe:     { bg: "rgba(74,222,128,0.15)", color: "#4ade80", border: "rgba(74,222,128,0.3)" },
-  unripe:   { bg: "rgba(250,204,21,0.15)", color: "#facc15", border: "rgba(250,204,21,0.3)" },
-  overripe: { bg: "rgba(248,113,113,0.15)", color: "#f87171", border: "rgba(248,113,113,0.3)" },
+const GRADE_TIPS = {
+  ripe: "Perfect to eat right now! 🎉",
+  unripe: "Give it a few more days to ripen.",
+  overripe: "Best used in smoothies or cooking.",
 };
 
-const BAR_COLORS = {
-  ripe: "#4ade80",
-  unripe: "#facc15",
-  overripe: "#f87171",
-};
+const LOCAL_HISTORY_KEY = "fruitsense_history";
 
-export default function Dashboard() {
-  const [tab, setTab] = useState("detector");
-  const [selectedFruit, setSelectedFruit] = useState(null);
+function ConfBar({ label, value, color }) {
+  const [width, setWidth] = useState(0);
+  useEffect(() => { setTimeout(() => setWidth(value), 100); }, [value]);
+  return (
+    <div className="prob-row">
+      <div className="prob-label">
+        <span style={{ textTransform: "capitalize" }}>{label}</span>
+        <span style={{ fontWeight: 600, color }}>{value.toFixed(1)}%</span>
+      </div>
+      <div className="conf-bar-bg">
+        <div className="conf-bar-fill" style={{ width: `${width}%`, background: color }} />
+      </div>
+    </div>
+  );
+}
+
+export default function Dashboard({ theme, toggleTheme }) {
+  const nav = useNavigate();
+  const [user, setUser] = useState(null);
+  const [tab, setTab] = useState("scan");
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [histLoading, setHistLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [voiceText, setVoiceText] = useState("");
   const [error, setError] = useState("");
   const fileRef = useRef();
+  const recognitionRef = useRef(null);
 
+  // ── Init ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const u = localStorage.getItem("user");
+    if (!u) { nav("/login"); return; }
+    setUser(JSON.parse(u));
+    loadLocalHistory();
+    fetchHistory();
+    initVoice();
+  }, []);
+
+  // ── Local history ─────────────────────────────────────────────────────────
+  const loadLocalHistory = () => {
+    try {
+      const stored = localStorage.getItem(LOCAL_HISTORY_KEY);
+      if (stored) setHistory(JSON.parse(stored));
+    } catch {}
+  };
+
+  const saveLocalHistory = (newEntry) => {
+    try {
+      const stored = localStorage.getItem(LOCAL_HISTORY_KEY);
+      const existing = stored ? JSON.parse(stored) : [];
+      const updated = [newEntry, ...existing].slice(0, 50);
+      localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(updated));
+      setHistory(updated);
+    } catch {}
+  };
+
+  // ── Voice recognition ─────────────────────────────────────────────────────
+  const initVoice = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+    const rec = new SpeechRecognition();
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.lang = "en-US";
+    rec.onresult = (e) => {
+      const transcript = e.results[0][0].transcript.toLowerCase();
+      setVoiceText(transcript);
+      setListening(false);
+      if (/(check|scan|analyze|detect|upload|fruit)/i.test(transcript)) {
+        fileRef.current?.click();
+      }
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    recognitionRef.current = rec;
+  };
+
+  const toggleVoice = () => {
+    if (!recognitionRef.current) {
+      setError("Voice not supported in this browser. Try Chrome.");
+      return;
+    }
+    if (listening) {
+      recognitionRef.current.stop();
+      setListening(false);
+    } else {
+      setVoiceText("");
+      recognitionRef.current.start();
+      setListening(true);
+    }
+  };
+
+  // ── Image handling ────────────────────────────────────────────────────────
   const handleFile = (file) => {
     if (!file || !file.type.startsWith("image/")) {
       setError("Please upload a valid image file.");
@@ -48,316 +127,246 @@ export default function Dashboard() {
     setPreview(URL.createObjectURL(file));
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = useCallback((e) => {
     e.preventDefault();
     setDragOver(false);
     handleFile(e.dataTransfer.files[0]);
-  };
+  }, []);
 
+  // ── Auto detect ───────────────────────────────────────────────────────────
   const handleDetect = async () => {
     if (!image) { setError("Please upload a fruit image first."); return; }
-    if (!selectedFruit) { setError("Please select a fruit type first."); return; }
-
-    setScanning(true);
-    setError("");
-    setResult(null);
-
+    setScanning(true); setError(""); setResult(null);
     const form = new FormData();
     form.append("file", image);
-
     try {
-      const res = await api.post(`/predict?fruit=${selectedFruit}`, form);
-      console.log("API response:", res.data);
+      const res = await api.post("/detect", form);
       setResult(res.data);
-    } catch (e) {
-      console.error("API error:", e);
+      if (!res.data.error && res.data.fruit) {
+        const entry = {
+          id: Date.now().toString(),
+          fruit: res.data.fruit,
+          grade: res.data.grade,
+          confidence: res.data.confidence,
+          timestamp: new Date().toISOString(),
+        };
+        saveLocalHistory(entry);
+        fetchHistory();
+      }
+    } catch {
       setError("Detection failed. Make sure the backend is running.");
     } finally {
       setScanning(false);
     }
   };
 
-  // grade comes from result.grade (FastAPI) — already a percentage value
-  const grade = result?.grade;
-  const gradeStyle = GRADE_COLORS[grade] || GRADE_COLORS.ripe;
+  // ── History ───────────────────────────────────────────────────────────────
+  const fetchHistory = async () => {
+    setHistLoading(true);
+    try {
+      const res = await api.get("/history?limit=50");
+      if (res.data.scans?.length > 0) setHistory(res.data.scans);
+    } catch {
+      // Fall back to local history silently
+    } finally {
+      setHistLoading(false);
+    }
+  };
+
+  const clearHistory = () => {
+    localStorage.removeItem(LOCAL_HISTORY_KEY);
+    setHistory([]);
+    api.delete("/history").catch(() => {});
+  };
+
+  const logout = () => {
+    localStorage.clear();
+    nav("/login");
+  };
+
+  // ── Grade color ───────────────────────────────────────────────────────────
+  const gradeColor = (g) => ({ ripe: "#4ade80", unripe: "#facc15", overripe: "#f87171" }[g] || "var(--text)");
+  const formatDate = (iso) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
   return (
-    <div style={{ minHeight: "100vh", background: "#060810", color: "#f0f2f8", padding: "40px 20px" }}>
-      <div style={{ maxWidth: 680, margin: "0 auto" }}>
+    <div style={{ minHeight: "100vh", paddingBottom: 60 }}>
+      <div className="orb-bg">
+        <div className="orb orb-1" />
+        <div className="orb orb-2" />
+        <div className="orb orb-3" />
+      </div>
 
-        {/* Logo */}
-        <div style={{ textAlign: "center", marginBottom: 40 }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>🍃</div>
-          <h1 style={{
-            fontSize: 28, fontWeight: 800,
-            background: "linear-gradient(135deg, #4ade80, #22d3ee)",
-            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-            margin: 0, letterSpacing: "-0.02em"
-          }}>FruitSense</h1>
+      {/* Nav */}
+      <nav className="nav">
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 22 }}>🍃</span>
+          <span className="font-display" style={{ fontWeight: 800, fontSize: 18, background: "linear-gradient(135deg, var(--accent), var(--accent2))", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+            FruitSense
+          </span>
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <span style={{ fontSize: 13, color: "var(--text-muted)" }}>👋 {user?.name?.split(" ")[0]}</span>
+          <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme" />
+          <button onClick={logout} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 13, fontFamily: "inherit" }}>Sign out</button>
+        </div>
+      </nav>
+
+      {/* Main */}
+      <div style={{ maxWidth: 720, margin: "0 auto", padding: "96px 20px 0" }}>
 
         {/* Tabs */}
         <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
-          {["detector", "about"].map(t => (
-            <button key={t} onClick={() => setTab(t)} style={{
-              padding: "8px 20px", borderRadius: 10, fontFamily: "inherit",
-              border: tab === t ? "1px solid rgba(255,255,255,0.15)" : "none",
-              background: tab === t ? "rgba(255,255,255,0.07)" : "transparent",
-              color: tab === t ? "#f0f2f8" : "rgba(240,242,248,0.45)",
-              fontWeight: 600, fontSize: 14, cursor: "pointer",
-            }}>
-              {t === "detector" ? "🔍 Detect" : "ℹ️ About"}
+          {["scan", "history"].map(t => (
+            <button key={t} className={`tab-btn ${tab === t ? "active" : ""}`}
+              onClick={() => { setTab(t); if (t === "history") fetchHistory(); }}>
+              {t === "scan" ? "🔍 Detect" : `📋 History (${history.length})`}
             </button>
           ))}
         </div>
 
-        {/* ── DETECTOR TAB ── */}
-        {tab === "detector" && (
-          <div>
-            {/* Fruit Selector */}
-            <div style={{
-              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: 24, padding: 24, marginBottom: 24, backdropFilter: "blur(24px)"
-            }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: "#f0f2f8" }}>
-                Select Fruit Type
-              </h3>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(75px, 1fr))", gap: 12 }}>
-                {AVAILABLE_FRUITS.map(fruit => (
-                  <button key={fruit} onClick={() => { setSelectedFruit(fruit); setResult(null); setError(""); }}
-                    style={{
-                      padding: 12, borderRadius: 14, cursor: "pointer", fontFamily: "inherit",
-                      border: selectedFruit === fruit ? "2px solid #4ade80" : "1px solid rgba(255,255,255,0.08)",
-                      background: selectedFruit === fruit ? "rgba(74,222,128,0.2)" : "rgba(255,255,255,0.04)",
-                      color: "#f0f2f8", display: "flex", flexDirection: "column",
-                      alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600,
-                      textTransform: "capitalize", transition: "all 0.2s",
-                    }}>
-                    <span style={{ fontSize: 24 }}>{FRUIT_EMOJI[fruit] || "🍽️"}</span>
-                    {fruit}
-                  </button>
-                ))}
-              </div>
-              {selectedFruit && (
-                <div style={{ marginTop: 12, fontSize: 13, color: "#4ade80", textAlign: "center" }}>
-                  ✓ {selectedFruit.toUpperCase()} selected
-                </div>
-              )}
-            </div>
+        {/* ── SCAN TAB ── */}
+        {tab === "scan" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-            {/* Upload Zone */}
+            {/* Upload zone */}
             <div
-              style={{
-                border: `2px dashed ${dragOver ? "#4ade80" : "rgba(255,255,255,0.15)"}`,
-                borderRadius: 20, padding: 48, textAlign: "center", cursor: "pointer",
-                marginBottom: 24, background: dragOver ? "rgba(74,222,128,0.1)" : "transparent",
-                transition: "all 0.2s",
-              }}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              className={`upload-zone ${dragOver ? "drag-over" : ""}`}
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
               onClick={() => fileRef.current?.click()}
             >
-              <input ref={fileRef} type="file" accept="image/*"
-                style={{ display: "none" }} onChange={(e) => handleFile(e.target.files[0])} />
+              <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
+                onChange={e => handleFile(e.target.files[0])} />
+
               {preview ? (
                 <div style={{ position: "relative", display: "inline-block" }}>
-                  {scanning && (
-                    <div style={{
-                      position: "absolute", left: 0, right: 0, height: 2,
-                      background: "linear-gradient(90deg, transparent, #4ade80, transparent)",
-                      animation: "scan-line 1.5s ease-in-out infinite",
-                      boxShadow: "0 0 12px #4ade80"
-                    }} />
-                  )}
-                  <img src={preview} alt="fruit" style={{
-                    width: 200, height: 200, objectFit: "cover", borderRadius: 16, display: "block",
-                    animation: scanning ? "none" : "sharpening 0.9s ease-out forwards"
-                  }} />
+                  {scanning && <div className="scan-frame" />}
+                  {scanning && <div className="scan-line" />}
+                  <img src={preview} className={scanning ? "" : "img-sharpen"}
+                    style={{ width: 200, height: 200, objectFit: "cover", borderRadius: 16, display: "block" }} alt="fruit" />
                 </div>
               ) : (
                 <div>
                   <div style={{ fontSize: 48, marginBottom: 12 }}>📸</div>
-                  <p style={{ fontWeight: 700, fontSize: 16, color: "#f0f2f8", margin: "0 0 4px" }}>
-                    Drop a fruit photo here
-                  </p>
-                  <p style={{ fontSize: 13, color: "rgba(240,242,248,0.45)", margin: 0 }}>
-                    or click to browse · JPG, PNG, WEBP
-                  </p>
+                  <p className="font-display" style={{ fontWeight: 700, fontSize: 16, color: "var(--text)" }}>Drop a fruit photo here</p>
+                  <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>or click to browse · JPG, PNG, WEBP</p>
                 </div>
               )}
             </div>
 
-            {/* Error */}
-            {error && (
-              <div style={{
-                background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.2)",
-                color: "#f87171", padding: 12, borderRadius: 12, fontSize: 14, marginBottom: 16,
-              }}>
-                {error}
+            {/* Action row */}
+            <div style={{ display: "flex", gap: 12 }}>
+              <button className={`voice-btn ${listening ? "listening" : ""}`} onClick={toggleVoice} title="Say 'scan fruit' to activate">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                  <line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+              </button>
+              <button className="btn" onClick={handleDetect} disabled={scanning || !image} style={{ flex: 1 }}>
+                {scanning
+                  ? <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><span className="spinner" />Analyzing...</span>
+                  : "🤖 Auto Detect Fruit"}
+              </button>
+            </div>
+
+            {/* Voice feedback */}
+            {listening && (
+              <div className="alert" style={{ background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.2)", color: "#f87171", display: "flex", alignItems: "center", gap: 8 }}>
+                🎙️ Listening... say "scan fruit" or "check this"
+              </div>
+            )}
+            {voiceText && !listening && (
+              <div style={{ fontSize: 13, color: "var(--text-muted)", textAlign: "center" }}>
+                🗣️ Heard: "<em>{voiceText}</em>"
               </div>
             )}
 
-            {/* Detect Button */}
-            <button onClick={handleDetect} disabled={scanning || !image || !selectedFruit}
-              style={{
-                width: "100%", padding: 14, border: "none", borderRadius: 14, fontFamily: "inherit",
-                background: scanning || !image || !selectedFruit ? "rgba(74,222,128,0.5)" : "#4ade80",
-                color: "#000", fontWeight: 700, fontSize: 15, marginBottom: 24,
-                cursor: scanning || !image || !selectedFruit ? "not-allowed" : "pointer",
-                opacity: scanning || !image || !selectedFruit ? 0.6 : 1, transition: "all 0.15s",
-              }}>
-              {scanning ? (
-                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                  <span style={{
-                    display: "inline-block", width: 16, height: 16,
-                    border: "2px solid rgba(0,0,0,0.3)", borderTopColor: "#000",
-                    borderRadius: "50%", animation: "spin 0.7s linear infinite"
-                  }} />
-                  Analyzing...
-                </span>
-              ) : "🤖 Detect Ripeness"}
-            </button>
+            {error && <div className="alert alert-error">{error}</div>}
 
-            {/* Result Card */}
+            {/* Result card */}
             {result && !result.error && (
-              <div style={{
-                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 24, padding: 24, backdropFilter: "blur(24px)",
-                animation: "pop-in 0.4s cubic-bezier(0.34,1.56,0.64,1)"
-              }}>
-                {/* Header */}
+              <div className="glass anim-pop" style={{ padding: 24 }}>
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 16 }}>
                   <div>
-                    <div style={{ fontSize: 48, marginBottom: 8 }}>{FRUIT_EMOJI[selectedFruit] || "🍽️"}</div>
-                    <h2 style={{ fontSize: 24, fontWeight: 800, textTransform: "capitalize", margin: 0, color: "#f0f2f8" }}>
-                      {selectedFruit}
+                    <div style={{ fontSize: 48 }}>{FRUIT_EMOJI[result.fruit] || "🍽️"}</div>
+                    <h2 className="font-display" style={{ fontSize: 24, fontWeight: 800, textTransform: "capitalize", marginTop: 4 }}>
+                      {result.fruit}
                     </h2>
                   </div>
-                  {/* Grade badge */}
-                  <span style={{
-                    display: "inline-flex", alignItems: "center", padding: "6px 16px",
-                    borderRadius: 999, fontWeight: 700, fontSize: 13,
-                    letterSpacing: "0.05em", textTransform: "uppercase",
-                    background: gradeStyle.bg, color: gradeStyle.color,
-                    border: `1px solid ${gradeStyle.border}`
-                  }}>
-                    {grade}
-                  </span>
+                  <span className={`grade-badge grade-${result.grade}`}>{result.grade}</span>
                 </div>
-
-                {/* Confidence */}
-                <p style={{ fontSize: 14, color: "rgba(240,242,248,0.45)", marginBottom: 16 }}>
-                  Confidence: <strong style={{ color: "#f0f2f8" }}>{result.confidence.toFixed(1)}%</strong>
+                <p style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 16 }}>
+                  {GRADE_TIPS[result.grade]}
                 </p>
-
-                {/* Probability bars — all_probs values are already percentages (e.g. 67.9) */}
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {Object.entries(result.all_probs || {}).map(([label, val]) => (
-                    <div key={label}>
-                      <div style={{
-                        display: "flex", justifyContent: "space-between",
-                        fontSize: 12, color: "rgba(240,242,248,0.45)", marginBottom: 4
-                      }}>
-                        <span style={{ textTransform: "capitalize" }}>{label}</span>
-                        <span style={{ fontWeight: 600, color: BAR_COLORS[label] || "#fff" }}>
-                          {val.toFixed(1)}%
-                        </span>
-                      </div>
-                      <div style={{ height: 6, background: "rgba(255,255,255,0.08)", borderRadius: 999, overflow: "hidden" }}>
-                        <div style={{
-                          height: "100%", borderRadius: 999,
-                          background: BAR_COLORS[label] || "#888",
-                          width: `${val}%`,  /* val is already a percentage */
-                          transition: "width 1s cubic-bezier(0.16,1,0.3,1)"
-                        }} />
-                      </div>
-                    </div>
+                    <ConfBar key={label} label={label} value={val} color={gradeColor(label)} />
                   ))}
                 </div>
+                {result.auto_detected && (
+                  <p style={{ fontSize: 12, color: "var(--text-dim)", marginTop: 12, textAlign: "right" }}>
+                    ✨ Auto-detected · {result.confidence}% confident
+                  </p>
+                )}
+                {result.warning && (
+                  <div className="alert" style={{ background: "rgba(250,204,21,0.1)", border: "1px solid rgba(250,204,21,0.2)", color: "#facc15", marginTop: 12, fontSize: 13 }}>
+                    ⚠️ {result.warning}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* API error */}
-            {result?.error && (
-              <div style={{
-                background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.2)",
-                color: "#f87171", padding: 12, borderRadius: 12, fontSize: 14, textAlign: "center"
-              }}>
-                {result.error}
-              </div>
-            )}
+            {result?.error && <div className="alert alert-error">{result.error}</div>}
           </div>
         )}
 
-        {/* ── ABOUT TAB ── */}
-        {tab === "about" && (
-          <div style={{
-            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 24, padding: 24, backdropFilter: "blur(24px)",
-            animation: "fade-up 0.3s ease-out"
-          }}>
-            <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8, color: "#f0f2f8" }}>
-              About FruitSense AI
-            </h2>
-            <p style={{ fontSize: 14, color: "rgba(240,242,248,0.45)", marginBottom: 24 }}>
-              Advanced AI-powered fruit ripeness detection system
-            </p>
+        {/* ── HISTORY TAB ── */}
+        {tab === "history" && (
+          <div className="glass anim-fade-up" style={{ padding: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 className="font-display" style={{ fontWeight: 700, fontSize: 18 }}>Scan History</h2>
+              {history.length > 0 && (
+                <button className="btn btn-ghost" onClick={clearHistory}
+                  style={{ width: "auto", padding: "8px 16px", fontSize: 13, color: "var(--danger)", borderColor: "rgba(248,113,113,0.3)" }}>
+                  Clear all
+                </button>
+              )}
+            </div>
 
-            {[
-              { title: "📊 Dataset", color: "#4ade80", items: ["Fruits-360 Dataset","100x100 pixel images","Multiple fruit categories","High-quality labeled data"] },
-              { title: "🧠 Model", color: "#22d3ee", items: ["MobileNetV3 Small","Transfer learning on ImageNet","ONNX format for fast inference","Real-time predictions"] },
-              { title: "🎯 Training", color: "#f97316", items: ["6 epochs · AdamW optimizer","Cosine Annealing scheduler","Label smoothing (0.1)","Data augmentation: flip, rotation, jitter"] },
-            ].map(section => (
-              <div key={section.title} style={{ marginBottom: 24, paddingBottom: 24, borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: section.color }}>{section.title}</h3>
-                {section.items.map(item => (
-                  <div key={item} style={{ display: "flex", gap: 8, fontSize: 12, marginBottom: 6 }}>
-                    <span style={{ color: "#4ade80", fontWeight: 700 }}>✓</span>
-                    <span style={{ color: "rgba(240,242,248,0.45)" }}>{item}</span>
+            {histLoading && (
+              <div style={{ textAlign: "center", padding: 40 }}>
+                <span className="spinner" style={{ borderTopColor: "var(--accent)", borderColor: "var(--border)" }} />
+              </div>
+            )}
+
+            {!histLoading && history.length === 0 && (
+              <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-muted)" }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🍽️</div>
+                <p>No scans yet. Detect a fruit to get started!</p>
+              </div>
+            )}
+
+            {history.map((s, i) => (
+              <div key={s.id || i} className="history-item" style={{ animationDelay: `${i * 0.05}s` }}>
+                <div style={{ fontSize: 32 }}>{FRUIT_EMOJI[s.fruit] || "🍽️"}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span className="font-display" style={{ fontWeight: 700, fontSize: 15, textTransform: "capitalize" }}>{s.fruit}</span>
+                    <span className={`grade-badge grade-${s.grade}`} style={{ padding: "2px 10px", fontSize: 11 }}>{s.grade}</span>
                   </div>
-                ))}
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{formatDate(s.timestamp)}</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: gradeColor(s.grade) }}>{s.confidence}%</span>
+                </div>
               </div>
             ))}
-
-            {/* Supported fruits */}
-            <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: "#f0f2f8" }}>🍎 Supported Fruits</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(80px, 1fr))", gap: 10 }}>
-              {AVAILABLE_FRUITS.map(fruit => (
-                <div key={fruit} style={{
-                  background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                  borderRadius: 12, padding: 10, textAlign: "center",
-                  fontSize: 12, color: "rgba(240,242,248,0.45)"
-                }}>
-                  <div style={{ fontSize: 18, marginBottom: 4 }}>{FRUIT_EMOJI[fruit] || "🍽️"}</div>
-                  <div style={{ textTransform: "capitalize", fontWeight: 500 }}>{fruit}</div>
-                </div>
-              ))}
-            </div>
           </div>
         )}
       </div>
-
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes sharpening {
-          0%   { filter: blur(20px) brightness(0.6); transform: scale(1.05); }
-          60%  { filter: blur(4px)  brightness(0.9); transform: scale(1.02); }
-          100% { filter: blur(0)    brightness(1);   transform: scale(1);    }
-        }
-        @keyframes scan-line {
-          0%   { top: 0;    opacity: 1; }
-          100% { top: 100%; opacity: 0; }
-        }
-        @keyframes fade-up {
-          from { opacity: 0; transform: translateY(16px); }
-          to   { opacity: 1; transform: translateY(0);    }
-        }
-        @keyframes pop-in {
-          from { opacity: 0; transform: scale(0.9); }
-          to   { opacity: 1; transform: scale(1);   }
-        }
-      `}</style>
     </div>
   );
 }

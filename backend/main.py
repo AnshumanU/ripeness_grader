@@ -154,7 +154,8 @@ def run_inference(fruit: str, image_bytes: bytes) -> dict:
         return {"error": f"Could not process image: {str(e)}"}
 
     try:
-        logits = sessions[fruit].run(None, {"image": tensor})[0][0]
+        input_name = sessions[fruit].get_inputs()[0].name
+        logits = sessions[fruit].run(None, {input_name: tensor})[0][0]
     except Exception as e:
         return {"error": f"Model inference failed: {str(e)}"}
 
@@ -272,7 +273,8 @@ async def auto_detect(
         class_names = FRUIT_CLASSES.get(fruit_name, ["overripe", "ripe"])
         try:
             tensor     = preprocess(image_bytes)
-            logits     = session.run(None, {"image": tensor})[0][0]
+            input_name = session.get_inputs()[0].name
+            logits     = session.run(None, {input_name: tensor})[0][0]
             probs      = softmax(logits)
             pred_idx   = int(probs.argmax())
             confidence = float(probs[pred_idx]) * 100
